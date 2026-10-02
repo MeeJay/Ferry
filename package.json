@@ -1,0 +1,15 @@
+{
+  "name": "ferry",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Ferry — self-hosted file sharing (private/public shares, reverse shares, ShareX, Entra ID SSO)",
+  "scripts": {
+    "dev:server": "npm run dev --workspace=server",
+    "dev:client": "npm run dev --workspace=client",
+    "build": "npm run build --workspace=shared && npm run build --workspace=server && npm run build --workspace=client",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:build": "docker compose -f docker-compose.build.yml up -d --build"
+  },
+  "workspaces": ["shared", "server", "client"]
+}

@@ -1,0 +1,48 @@
+# Ferry — production stack. Publishes ONE http port: put your own reverse
+# proxy (TLS) in front of it. Configure through .env (see .env.example).
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ferry
+      POSTGRES_USER: ferry
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ferry -d ferry"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  server:
+    image: meejay/ferry-server:${FERRY_VERSION:-latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://ferry:${DB_PASSWORD:-changeme}@postgres:5432/ferry
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET must be set in .env}
+      APP_URL: ${APP_URL:-}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-loopback, linklocal, uniquelocal}
+      DEFAULT_ADMIN_USERNAME: ${DEFAULT_ADMIN_USERNAME:-admin}
+      DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-admin123}
+      UPLOAD_CHUNK_MB: ${UPLOAD_CHUNK_MB:-50}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ${DATA_PATH:-ferry_data}:/data
+
+  client:
+    image: meejay/ferry-client:${FERRY_VERSION:-latest}
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_healthy
+    ports:
+      - "${LISTEN_PORT:-8080}:80"
+
+volumes:
+  postgres_data:
+  ferry_data:

@@ -1,0 +1,379 @@
+import crypto from 'node:crypto';
+import fsp from 'node:fs/promises';
+import path from 'node:path';
+import { Router } from 'express';
+import multer from 'multer';
+import { z } from 'zod';
+import type { AdminStats, AdminUser, AuditEntry, Paged, QuotaProfile, SettingsKey } from '@ferry/shared';
+import { config } from '../config.js';
+import { db } from '../db/knex.js';
+import { requireAdmin } from '../middleware/auth.js';
+import { getSetting, maskSecrets, setSetting } from '../services/settings.js';
+import { HttpError, purgeShare, shareDTO, type FileRow, type ShareRow } from '../services/shares.js';
+import { checkHandle, hashPassword, newUserCode, type ProfileRow, type UserRow } from '../services/users.js';
+import { sendMail } from '../services/mail.js';
+import { testS3 } from '../services/storage.js';
+import { audit } from '../services/audit.js';
+import { ah } from '../utils/http.js';
+import { policyLayerSchema, uuid } from '../utils/schemas.js';
+
+export const adminRouter = Router();
+adminRouter.use(requireAdmin);
+
+// ── Dashboard ──────────────────────────────────────────────────────────────
+
+adminRouter.get('/stats', ah(async (_req, res) => {
+  const live = () => db('shares').where({ status: 'ready' }).where((w) => w.whereNull('expires_at').orWhere('expires_at', '>', db.fn.now()));
+  const [users, active, files, storage, byDay, bySource, top] = await Promise.all([
+    db('users').count({ n: '*' }).first(),
+    live().count({ n: '*' }).first(),
+    db('files').join('shares', 'shares.id', 'files.share_id').whereIn('shares.status', ['ready', 'pending']).count({ n: '*' }).first(),
+    db('shares').whereIn('status', ['ready', 'pending']).sum({ s: 'total_size' }).first(),
+    db.raw(`
+      SELECT to_char(d.day, 'YYYY-MM-DD') AS day, count(s.id)::int AS count, coalesce(sum(s.total_size), 0)::bigint AS bytes
+      FROM generate_series(current_date - interval '29 days', current_date, interval '1 day') AS d(day)
+      LEFT JOIN shares s ON s.created_at::date = d.day::date AND s.status <> 'pending'
+      GROUP BY d.day ORDER BY d.day`),
+    db('shares').whereNot({ status: 'pending' }).where('created_at', '>', db.raw("now() - interval '30 days'")).select('source').count({ count: '*' }).groupBy('source'),
+    db('shares').join('users', 'users.id', 'shares.owner_id').whereIn('shares.status', ['ready', 'pending'])
+      .groupBy('users.id').select('users.id', 'users.username', 'users.display_name')
+      .sum({ bytes: 'shares.total_size' }).count({ shares: 'shares.id' }).orderBy('bytes', 'desc').limit(5),
+  ]);
+  const out: AdminStats = {
+    users: Number(users?.n ?? 0),
+    activeShares: Number(active?.n ?? 0),
+    files: Number(files?.n ?? 0),
+    storageUsed: Number(storage?.s ?? 0),
+    uploadsByDay: byDay.rows.map((r: any) => ({ day: r.day, count: Number(r.count), bytes: Number(r.bytes) })),
+    bySource: bySource.map((r: any) => ({ source: r.source, count: Number(r.count) })),
+    topUsers: top.map((r: any) => ({ id: r.id, username: r.username, displayName: r.display_name, bytes: Number(r.bytes), shares: Number(r.shares) })),
+  };
+  res.json(out);
+}));
+
+// ── Every share, XBackBone style ───────────────────────────────────────────
+
+adminRouter.get('/shares', ah(async (req, res) => {
+  const q = z.object({
+    page: z.coerce.number().int().min(1).default(1),
+    pageSize: z.coerce.number().int().min(1).max(200).default(48),
+    search: z.string().optional(),
+    source: z.enum(['web', 'sharex', 'request']).optional(),
+    status: z.enum(['active', 'expired', 'deleted', 'all']).default('active'),
+    owner: z.string().uuid().optional(),
+    type: z.enum(['image', 'video', 'audio', 'document', 'archive', 'other']).optional(),
+  }).parse(req.query);
+
+  const base = db<ShareRow>('shares as s').whereNot('s.status', 'pending');
+  if (q.status === 'active') base.where('s.status', 'ready').where((w) => w.whereNull('s.expires_at').orWhere('s.expires_at', '>', db.fn.now()));
+  if (q.status === 'expired') base.where((w) => w.where('s.status', 'expired').orWhere((x) => x.where('s.status', 'ready').where('s.expires_at', '<=', db.fn.now())));
+  if (q.status === 'deleted') base.where('s.status', 'deleted');
+  if (q.source) base.where('s.source', q.source);
+  if (q.owner) base.where('s.owner_id', q.owner);
+  if (q.search) {
+    const like = `%${q.search.replace(/[%_]/g, '\\$&')}%`;
+    base.where((w) => w.whereILike('s.title', like).orWhereILike('s.slug', like).orWhereILike('s.uploader_name', like)
+      .orWhereExists(db('files').whereRaw('files.share_id = s.id').whereILike('files.name', like))
+      .orWhereExists(db('users').whereRaw('users.id = s.owner_id').where((u) => u.whereILike('users.username', like).orWhereILike('users.display_name', like))));
+  }
+  if (q.type) {
+    const patterns: Record<string, string> = {
+      image: 'image/%', video: 'video/%', audio: 'audio/%',
+      document: 'application/pdf', archive: 'application/%zip%',
+    };
+    if (q.type === 'other') {
+      base.whereNotExists(db('files').whereRaw('files.share_id = s.id').where((w) => w.whereILike('mime', 'image/%').orWhereILike('mime', 'video/%').orWhereILike('mime', 'audio/%')));
+    } else {
+      base.whereExists(db('files').whereRaw('files.share_id = s.id').whereILike('mime', patterns[q.type]));
+    }
+  }
+
+  const total = Number((await base.clone().count({ n: '*' }).first())?.n ?? 0);
+  const rows = await base.select('s.*').orderBy('s.created_at', 'desc').limit(q.pageSize).offset((q.page - 1) * q.pageSize);
+  const files = rows.length ? await db<FileRow>('files').whereIn('share_id', rows.map((r) => r.id)).orderBy('created_at') : [];
+  const items = await Promise.all(rows.map((r) => shareDTO(r, { withOwner: true, files: files.filter((f) => f.share_id === r.id) })));
+  const out: Paged<typeof items[number]> = { items, total, page: q.page, pageSize: q.pageSize };
+  res.json(out);
+}));
+
+// ── Users ──────────────────────────────────────────────────────────────────
+
+async function adminUsers(): Promise<AdminUser[]> {
+  const rows = await db('users as u')
+    .leftJoin('shares as s', function () { this.on('s.owner_id', 'u.id').andOnIn('s.status', ['ready', 'pending']); })
+    .groupBy('u.id').select('u.*').sum({ used: 's.total_size' }).count({ shares: 's.id' })
+    .orderBy('u.created_at');
+  return rows.map((u: any) => ({
+    id: u.id, username: u.username, displayName: u.display_name, email: u.email, role: u.role,
+    authProvider: u.auth_provider, disabled: u.disabled, quotaProfileId: u.quota_profile_id,
+    storageUsed: Number(u.used ?? 0), shareCount: Number(u.shares ?? 0),
+    createdAt: new Date(u.created_at).toISOString(), lastLoginAt: u.last_login_at ? new Date(u.last_login_at).toISOString() : null,
+  }));
+}
+
+adminRouter.get('/users', ah(async (_req, res) => res.json(await adminUsers())));
+
+const userBody = z.object({
+  username: z.string().min(2).max(32),
+  displayName: z.string().min(1).max(100),
+  email: z.string().email().nullish().or(z.literal('')),
+  password: z.string().min(8).max(200).optional(),
+  role: z.enum(['admin', 'user']).default('user'),
+  quotaProfileId: z.string().uuid().nullish(),
+  disabled: z.boolean().optional(),
+});
+
+adminRouter.post('/users', ah(async (req, res) => {
+  const b = userBody.required({ password: true }).parse(req.body);
+  const username = b.username.toLowerCase().trim();
+  const problem = await checkHandle(username);
+  if (problem) throw new HttpError(400, problem);
+  const [u] = await db<UserRow>('users').insert({
+    username, display_name: b.displayName.trim(), email: b.email || null, password_hash: await hashPassword(b.password),
+    role: b.role, auth_provider: 'local', user_code: await newUserCode(), quota_profile_id: b.quotaProfileId ?? null,
+  }).returning('*');
+  audit(req, 'user.created', u.username, { provider: 'local', role: u.role });
+  res.status(201).json((await adminUsers()).find((x) => x.id === u.id));
+}));
+
+adminRouter.patch('/users/:id', ah(async (req, res) => {
+  const id = uuid.parse(req.params.id);
+  const b = userBody.partial().parse(req.body);
+  const user = await db<UserRow>('users').where({ id }).first();
+  if (!user) throw new HttpError(404, 'Utilisateur introuvable');
+  if (id === req.user!.id && (b.role === 'user' || b.disabled)) throw new HttpError(400, 'Vous ne pouvez pas vous retirer vos propres droits');
+  const patch: Partial<UserRow> = {};
+  if (b.username !== undefined && b.username !== user.username) {
+    const username = b.username.toLowerCase().trim();
+    const problem = await checkHandle(username, id);
+    if (problem) throw new HttpError(400, problem);
+    patch.username = username;
+  }
+  if (b.displayName !== undefined) patch.display_name = b.displayName.trim();
+  if (b.email !== undefined) patch.email = b.email || null;
+  if (b.role !== undefined) patch.role = b.role;
+  if (b.quotaProfileId !== undefined) patch.quota_profile_id = b.quotaProfileId ?? null;
+  if (b.disabled !== undefined) patch.disabled = b.disabled;
+  if (b.password) {
+    if (user.auth_provider !== 'local') throw new HttpError(400, 'Compte SSO : pas de mot de passe local');
+    patch.password_hash = await hashPassword(b.password);
+  }
+  await db('users').where({ id }).update(patch);
+  audit(req, 'user.updated', user.username, { fields: Object.keys(patch).filter((k) => k !== 'password_hash').concat(b.password ? ['password'] : []) });
+  res.json((await adminUsers()).find((x) => x.id === id));
+}));
+
+adminRouter.delete('/users/:id', ah(async (req, res) => {
+  const id = uuid.parse(req.params.id);
+  if (id === req.user!.id) throw new HttpError(400, 'Impossible de supprimer votre propre compte');
+  const user = await db<UserRow>('users').where({ id }).first();
+  if (!user) throw new HttpError(404, 'Utilisateur introuvable');
+  const shares = await db<ShareRow>('shares').where({ owner_id: id }).whereIn('status', ['ready', 'pending']);
+  for (const s of shares) await purgeShare(s, 'deleted');
+  await db('links').whereIn('target_id', db('requests').where({ owner_id: id }).select('id')).delete();
+  await db('users').where({ id }).delete();
+  audit(req, 'user.deleted', user.username, { shares: shares.length });
+  res.json({ ok: true });
+}));
+
+// ── Quota profiles ─────────────────────────────────────────────────────────
+
+function profileDTO(p: ProfileRow & { user_count?: string | number }): QuotaProfile {
+  return {
+    id: p.id, name: p.name, description: p.description,
+    maxFileSizeMb: p.max_file_size_mb, maxShareSizeMb: p.max_share_size_mb, storageQuotaMb: p.storage_quota_mb,
+    defaultExpiryHours: p.default_expiry_hours, maxExpiryHours: p.max_expiry_hours,
+    allowNeverExpire: p.allow_never_expire, allowPublic: p.allow_public,
+    linkPolicy: p.link_policy ?? {}, oidcGroups: p.oidc_groups ?? [], isDefault: p.is_default,
+    userCount: Number(p.user_count ?? 0),
+  };
+}
+
+const profileBody = z.object({
+  name: z.string().min(1).max(80),
+  description: z.string().max(500).default(''),
+  maxFileSizeMb: z.number().int().min(0).nullable().default(null),
+  maxShareSizeMb: z.number().int().min(0).nullable().default(null),
+  storageQuotaMb: z.number().int().min(0).nullable().default(null),
+  defaultExpiryHours: z.number().int().min(0).nullable().default(null),
+  maxExpiryHours: z.number().int().min(0).nullable().default(null),
+  allowNeverExpire: z.boolean().nullable().default(null),
+  allowPublic: z.boolean().nullable().default(null),
+  linkPolicy: policyLayerSchema.default({}),
+  oidcGroups: z.array(z.string().min(1)).default([]),
+  isDefault: z.boolean().default(false),
+});
+
+function profileRow(b: Partial<z.infer<typeof profileBody>>) {
+  const map: Record<string, string> = {
+    name: 'name', description: 'description', maxFileSizeMb: 'max_file_size_mb', maxShareSizeMb: 'max_share_size_mb',
+    storageQuotaMb: 'storage_quota_mb', defaultExpiryHours: 'default_expiry_hours', maxExpiryHours: 'max_expiry_hours',
+    allowNeverExpire: 'allow_never_expire', allowPublic: 'allow_public', oidcGroups: 'oidc_groups', isDefault: 'is_default',
+  };
+  const row: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(b)) {
+    if (k === 'linkPolicy') row.link_policy = JSON.stringify(v);
+    else if (map[k]) row[map[k]] = v;
+  }
+  return row;
+}
+
+async function listProfiles() {
+  const rows = await db('quota_profiles as p').leftJoin('users as u', 'u.quota_profile_id', 'p.id')
+    .groupBy('p.id').select('p.*').count({ user_count: 'u.id' }).orderBy('p.created_at');
+  return rows.map((r) => profileDTO(r as any));
+}
+
+adminRouter.get('/profiles', ah(async (_req, res) => res.json(await listProfiles())));
+
+adminRouter.post('/profiles', ah(async (req, res) => {
+  const b = profileBody.parse(req.body);
+  const [row] = await db.transaction(async (trx) => {
+    if (b.isDefault) await trx('quota_profiles').update({ is_default: false });
+    return trx('quota_profiles').insert(profileRow(b)).returning('*');
+  });
+  audit(req, 'profile.created', row.name);
+  res.status(201).json((await listProfiles()).find((p) => p.id === row.id));
+}));
+
+adminRouter.patch('/profiles/:id', ah(async (req, res) => {
+  const id = uuid.parse(req.params.id);
+  const b = profileBody.partial().parse(req.body);
+  await db.transaction(async (trx) => {
+    if (b.isDefault) await trx('quota_profiles').whereNot({ id }).update({ is_default: false });
+    const n = await trx('quota_profiles').where({ id }).update(profileRow(b));
+    if (!n) throw new HttpError(404, 'Profil introuvable');
+  });
+  audit(req, 'profile.updated', id, { fields: Object.keys(b) });
+  res.json((await listProfiles()).find((p) => p.id === id));
+}));
+
+adminRouter.delete('/profiles/:id', ah(async (req, res) => {
+  const n = await db('quota_profiles').where({ id: uuid.parse(req.params.id) }).delete();
+  if (!n) throw new HttpError(404, 'Profil introuvable');
+  audit(req, 'profile.deleted', req.params.id);
+  res.json({ ok: true });
+}));
+
+// ── Settings ───────────────────────────────────────────────────────────────
+
+const hex = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Couleur hexadécimale attendue');
+const settingSchemas: Record<SettingsKey, z.ZodTypeAny> = {
+  branding: z.object({
+    name: z.string().min(1).max(60), tagline: z.string().max(120), welcome: z.string().max(400), accent: hex, footer: z.string().max(400),
+    logoLight: z.string().nullable(), logoDark: z.string().nullable(), favicon: z.string().nullable(),
+  }),
+  limits: z.object({
+    maxFileSizeMb: z.number().int().min(0), maxShareSizeMb: z.number().int().min(0), storageQuotaMb: z.number().int().min(0),
+    defaultExpiryHours: z.number().int().min(0), maxExpiryHours: z.number().int().min(0), allowNeverExpire: z.boolean(),
+    allowPublic: z.boolean(), defaultVisibility: z.enum(['private', 'public']),
+    sharexExpiryHours: z.number().int().min(0), sharexVisibility: z.enum(['private', 'public']), requestMaxExpiryHours: z.number().int().min(0),
+  }),
+  auth: z.object({
+    localLogin: z.boolean(),
+    oidc: z.object({
+      enabled: z.boolean(), tenantId: z.string().max(100), clientId: z.string().max(100), clientSecret: z.string().max(500),
+      buttonLabel: z.string().max(60), autoCreate: z.boolean(), adminGroups: z.array(z.string()), allowedGroups: z.array(z.string()),
+    }),
+  }),
+  mail: z.object({
+    provider: z.enum(['none', 'smtp', 'graph']), from: z.string().max(200),
+    smtp: z.object({ host: z.string(), port: z.number().int().min(1).max(65535), secure: z.boolean(), user: z.string(), pass: z.string() }),
+    graph: z.object({ tenantId: z.string(), clientId: z.string(), clientSecret: z.string(), sender: z.string() }),
+  }),
+  storage: z.object({
+    driver: z.enum(['local', 's3']),
+    s3: z.object({
+      endpoint: z.string(), region: z.string(), bucket: z.string(), accessKeyId: z.string(), secretAccessKey: z.string(),
+      forcePathStyle: z.boolean(), prefix: z.string(),
+    }),
+  }),
+  links: z.object({
+    sources: z.object({ web: policyLayerSchema, sharex: policyLayerSchema, request: policyLayerSchema }),
+    publicMinRandom: z.number().int().min(0).max(32),
+    reserved: z.array(z.string().min(1).max(32)),
+  }),
+};
+
+adminRouter.get('/settings', ah(async (_req, res) => {
+  const keys = Object.keys(settingSchemas) as SettingsKey[];
+  const entries = await Promise.all(keys.map(async (k) => [k, maskSecrets(k, await getSetting(k))]));
+  res.json(Object.fromEntries(entries));
+}));
+
+adminRouter.put('/settings/:key', ah(async (req, res) => {
+  const key = req.params.key as SettingsKey;
+  if (!settingSchemas[key]) throw new HttpError(404, 'Réglage inconnu');
+  const value = settingSchemas[key].parse(req.body);
+  if (key === 'auth' && !value.localLogin && !value.oidc.enabled) throw new HttpError(400, 'Au moins un mode de connexion doit rester actif');
+  if (key === 'storage' && value.driver === 's3') {
+    const current = await getSetting('storage');
+    const s3 = { ...value.s3, secretAccessKey: value.s3.secretAccessKey.startsWith('•') ? current.s3.secretAccessKey : value.s3.secretAccessKey };
+    await testS3(s3).catch((err) => { throw new HttpError(400, `S3 injoignable : ${err.message}`); });
+  }
+  const saved = await setSetting(key, value);
+  audit(req, 'settings.updated', key);
+  res.json(maskSecrets(key, saved));
+}));
+
+adminRouter.post('/settings/mail/test', ah(async (req, res) => {
+  const { to } = z.object({ to: z.string().email() }).parse(req.body);
+  try {
+    await sendMail({ to, subject: 'Test Ferry', title: 'Ça fonctionne !', body: 'La configuration d’envoi de mails est opérationnelle.' });
+  } catch (err: any) {
+    throw new HttpError(400, `Échec de l’envoi : ${err.message}`);
+  }
+  res.json({ ok: true });
+}));
+
+// ── Branding assets ────────────────────────────────────────────────────────
+
+const brandingUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, f, cb) => cb(null, /^image\/(png|jpeg|webp|svg\+xml|x-icon|vnd\.microsoft\.icon|gif)$/.test(f.mimetype)),
+});
+const SLOTS = ['logoLight', 'logoDark', 'favicon'] as const;
+
+adminRouter.post('/branding/:slot', brandingUpload.single('file'), ah(async (req, res) => {
+  const slot = z.enum(SLOTS).parse(req.params.slot);
+  if (!req.file) throw new HttpError(400, 'Image PNG, JPEG, WebP, SVG ou ICO attendue (2 Mo max)');
+  const ext = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/svg+xml': 'svg', 'image/gif': 'gif' }[req.file.mimetype] ?? 'ico';
+  const name = `${slot}-${crypto.randomBytes(6).toString('hex')}.${ext}`;
+  await fsp.writeFile(path.join(config.dirs.branding, name), req.file.buffer);
+  const branding = await getSetting('branding');
+  await removeBrandingFile(branding[slot]);
+  const saved = await setSetting('branding', { ...branding, [slot]: `/branding/${name}` });
+  audit(req, 'branding.updated', slot);
+  res.json(saved);
+}));
+
+adminRouter.delete('/branding/:slot', ah(async (req, res) => {
+  const slot = z.enum(SLOTS).parse(req.params.slot);
+  const branding = await getSetting('branding');
+  await removeBrandingFile(branding[slot]);
+  res.json(await setSetting('branding', { ...branding, [slot]: null }));
+}));
+
+async function removeBrandingFile(url: string | null) {
+  if (url?.startsWith('/branding/')) await fsp.rm(path.join(config.dirs.branding, path.basename(url)), { force: true });
+}
+
+// ── Audit ──────────────────────────────────────────────────────────────────
+
+adminRouter.get('/audit', ah(async (req, res) => {
+  const q = z.object({
+    page: z.coerce.number().int().min(1).default(1),
+    pageSize: z.coerce.number().int().min(1).max(200).default(50),
+    action: z.string().optional(),
+  }).parse(req.query);
+  const base = db('audit_log as a').leftJoin('users as u', 'u.id', 'a.user_id');
+  if (q.action) base.where('a.action', 'like', `${q.action}%`);
+  const total = Number((await base.clone().count({ n: '*' }).first())?.n ?? 0);
+  const rows = await base.select('a.*', 'u.username').orderBy('a.id', 'desc').limit(q.pageSize).offset((q.page - 1) * q.pageSize);
+  const items: AuditEntry[] = rows.map((r: any) => ({
+    id: Number(r.id), action: r.action, target: r.target, ip: r.ip, meta: r.meta ?? {},
+    createdAt: new Date(r.created_at).toISOString(), user: r.user_id ? { id: r.user_id, username: r.username } : null,
+  }));
+  res.json({ items, total, page: q.page, pageSize: q.pageSize });
+}));
