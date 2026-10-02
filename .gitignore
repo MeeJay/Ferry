@@ -6,3 +6,5 @@ data/
 *.bat
 *.lock
 .claude/
+CLAUDE.md
+REPRISE-CLAUDE.md
