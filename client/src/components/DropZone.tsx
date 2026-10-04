@@ -40,7 +40,7 @@ export function DropZone({ onFiles, children, compact, className }: {
         onClick={() => input.current?.click()}
         className={clsx(
           'group relative w-full rounded-lg border-2 border-dashed transition-colors text-left',
-          over ? 'border-accent bg-grad-soft' : 'border-line bg-surface/40 hover:bg-surface-3 hover:bg-grad-soft',
+          over ? 'border-accent bg-grad-soft' : 'spotlight border-line hover:border-accent/60',
           compact ? 'px-5 py-6' : 'px-5 py-12 sm:py-16',
           className,
         )}

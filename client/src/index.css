@@ -7,7 +7,8 @@
 @tailwind utilities;
 
 /* Ferry design tokens — "Signal": deep navy, blue → sky accent, a faint grid
-   and a spotlight that follows the pointer. Depth comes from tone, not borders:
+   and a light, static glow; featured cards carry a .spotlight. Depth comes
+   from tone, not borders:
    bg < surface (cards) ; surface-2 = inputs / pill containers ; surface-3 =
    hover. Values are RGB triplets so Tailwind opacity modifiers work.
    --accent / --accent-2 come from the instance branding (lib/theme.ts). */
@@ -31,11 +32,9 @@
   --warn: 217 140 0;
   --card-shadow: 0 1px 2px rgb(20 40 90 / .05), 0 10px 28px -16px rgb(20 40 90 / .16);
   --glow-strength: .28;
-  --spot: .14;
-  --cone: .30;
-  --grid: .55;
-  --mx: 62%;
-  --my: 14%;
+  --cone: .16;
+  --grid: .35;
+  --spot: .10;
   color-scheme: light;
 }
 .dark {
@@ -53,26 +52,23 @@
   --warn: 251 191 36;
   --card-shadow: none;
   --glow-strength: .4;
-  --spot: .16;
-  --cone: .25;
-  --grid: .45;
+  --cone: .12;
+  --grid: .28;
+  --spot: .14;
   color-scheme: dark;
 }
 
 @layer base {
   html { font-size: 15px; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
   body { @apply bg-bg text-ink font-sans min-h-screen; font-feature-settings: 'cv11', 'ss01'; }
-  /* Spotlight: a soft disc that follows the pointer (--mx/--my set in
-     lib/spotlight.ts) over a fixed light cone falling from the top. */
+  /* A faint, fixed light falling from the top of the page. */
   body::before {
     content: '';
     position: fixed;
     inset: 0;
     z-index: -1;
     pointer-events: none;
-    background:
-      radial-gradient(600px circle at var(--mx) var(--my), rgb(var(--accent-2) / var(--spot)), transparent 60%),
-      radial-gradient(ellipse 60% 45% at 50% -10%, rgb(var(--accent) / var(--cone)), transparent 70%);
+    background: radial-gradient(ellipse 55% 40% at 50% -12%, rgb(var(--accent) / var(--cone)), transparent 70%);
   }
   /* Faint grid, fading out away from the top. */
   body::after {
@@ -95,6 +91,14 @@
 
 @layer components {
   .card { @apply bg-surface rounded-lg; box-shadow: var(--card-shadow); }
+  /* Featured card: soft light from the top-left corner + hairline accent edge
+     (same idea as Obliview's overview card). */
+  .spotlight {
+    background:
+      radial-gradient(120% 100% at 0% 0%, rgb(var(--accent-2) / var(--spot)), transparent 55%),
+      rgb(var(--surface));
+    box-shadow: inset 0 0 0 1px rgb(var(--accent) / .16), var(--card-shadow);
+  }
   .card-soft { @apply bg-surface/60 rounded-lg; }
   .label { @apply text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-3; }
   .kbd { @apply font-mono text-xs px-1.5 py-0.5 rounded bg-surface-2; }

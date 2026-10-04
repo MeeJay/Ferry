@@ -81,7 +81,7 @@ export default function LoginPage() {
             <p className="label !text-accent">{branding.tagline}</p>
             <h1 className="mt-3 text-2xl font-bold leading-[0.95]"><span className="text-grad">{branding.welcome}</span></h1>
           </div>
-          <div className="card p-8 sm:p-10">
+          <div className="spotlight rounded-lg p-8 sm:p-10">
             <h2 className="text-xl font-bold">Connexion</h2>
             <p className="mt-2 text-ink-2">Accédez à votre espace de partage.</p>
 

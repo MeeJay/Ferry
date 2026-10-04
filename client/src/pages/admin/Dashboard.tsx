@@ -82,11 +82,10 @@ export default function AdminDashboard() {
 function Kpi({ icon, label, value, tone }: { icon: ReactNode; label: string; value: string; tone?: 'grad' }) {
   if (tone === 'grad') {
     return (
-      <div className="relative overflow-hidden rounded-lg bg-grad p-5 text-white glow">
-        <div aria-hidden className="absolute -right-10 -top-10 size-40 rounded-full bg-white/15 blur-2xl" />
-        <div className="relative flex size-10 items-center justify-center rounded-md bg-white/20 [&>svg]:size-5">{icon}</div>
-        <div className="relative mt-5 text-[11px] font-bold uppercase tracking-[0.14em] text-white/75">{label}</div>
-        <div className="relative mt-1 font-display text-2xl font-bold tracking-tight">{value}</div>
+      <div className="spotlight rounded-lg p-5">
+        <div className="flex size-10 items-center justify-center rounded-md bg-grad text-white [&>svg]:size-5">{icon}</div>
+        <div className="label mt-5">{label}</div>
+        <div className="mt-1 font-display text-2xl font-bold tracking-tight">{value}</div>
       </div>
     );
   }
