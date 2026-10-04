@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import type { Request } from 'express';
 import {
-  cleanExtension, randomString, sanitizeSegment, splitExtension,
+  cleanExtension, formatBytes, randomString, sanitizeSegment, splitExtension,
   type CreateShareInput, type EffectiveLimits, type FileDTO, type LinkOptions, type ShareDTO, type ShareSource, type Visibility,
 } from '@ferry/shared';
 import { db } from '../db/knex.js';
@@ -10,8 +10,8 @@ import { activeDriver, driverFor } from './storage.js';
 import { allocateLink, linkPath } from './links.js';
 import { deleteThumb, makeThumb } from './thumbs.js';
 import { effectiveLimits, getUser, hashPassword, type UserRow } from './users.js';
-import { notify, escapeHtml } from './mail.js';
-import { absoluteUrl } from '../utils/http.js';
+import { notifyEvent } from './mail.js';
+import { absoluteUrl, baseUrl } from '../utils/http.js';
 
 export interface ShareRow {
   id: string;
@@ -237,7 +237,8 @@ export async function finalizeShare(shareId: string): Promise<ShareRow> {
 
   let original: string;
   if (share.kind === 'url') {
-    original = share.title || 'lien';
+    // A hostname title ("www.example.fr") must not yield a ".fr" extension.
+    original = (share.title || 'lien').replace(/\./g, '-');
   } else {
     const files = await db<FileRow>('files').where({ share_id: share.id }).orderBy('created_at');
     if (!files.length) throw new HttpError(400, 'Aucun fichier reçu');
@@ -278,15 +279,24 @@ export async function recordDownload(req: Request, share: ShareRow, file: FileRo
     const owner = updated ? await getUser(share.owner_id) : null;
     if (owner?.email) {
       const label = share.title || file?.name || share.slug || 'votre partage';
-      notify({
-        to: owner.email,
-        subject: `Téléchargé : ${label}`,
-        title: 'Votre partage a été téléchargé',
-        body: `<b>${escapeHtml(label)}</b> vient d’être téléchargé pour la première fois.`,
-        cta: { label: 'Voir le partage', url: absoluteUrl(req, linkPath(share.prefix, share.slug)) },
-      });
+      notifyEvent('share_downloaded', owner.email, { title: label, link: absoluteUrl(req, linkPath(share.prefix, share.slug)) }, baseUrl(req));
     }
   }
 }
 
 export const randomSuffix = () => randomString(6, 'unambiguous');
+
+const fmtDate = (d: Date) => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+
+/** Template variables describing a ready share (share_invite / request_received). */
+export async function shareMailVars(req: Request, share: ShareRow): Promise<Record<string, string>> {
+  const files = await db<FileRow>('files').where({ share_id: share.id }).orderBy('created_at');
+  return {
+    title: share.title || (files.length === 1 ? files[0].name : `${files.length} fichiers`),
+    message: share.message ?? '',
+    files: `${files.length} fichier${files.length > 1 ? 's' : ''}`,
+    size: formatBytes(Number(share.total_size)),
+    expires: share.expires_at ? fmtDate(new Date(share.expires_at)) : '',
+    link: absoluteUrl(req, linkPath(share.prefix, share.slug)),
+  };
+}

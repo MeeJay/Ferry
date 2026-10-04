@@ -49,12 +49,12 @@ export default function AdminAudit() {
       {!data ? <PageLoader /> : (
         <div className="card overflow-x-auto">
           <table className="w-full text-sm">
-            <thead><tr className="border-b-2 border-line text-left">{['Date', 'Événement', 'Utilisateur', 'Cible', 'IP', 'Détails'].map((h) => <th key={h} className="label px-4 py-3 !text-[10px]">{h}</th>)}</tr></thead>
-            <tbody className="divide-y-2 divide-line-soft">
+            <thead><tr className=" text-left">{['Date', 'Événement', 'Utilisateur', 'Cible', 'IP', 'Détails'].map((h) => <th key={h} className="label px-4 py-3 !text-[10px]">{h}</th>)}</tr></thead>
+            <tbody className="divide-y divide-line-soft">
               {data.items.map((e) => (
                 <tr key={e.id}>
                   <td className="px-4 py-2.5 whitespace-nowrap text-ink-3">{dateTime(e.createdAt)}</td>
-                  <td className={`px-4 py-2.5 font-bold whitespace-nowrap ${e.action.endsWith('failed') ? 'text-danger' : ''}`}>{LABELS[e.action] ?? e.action}</td>
+                  <td className={`px-4 py-2.5 font-semibold whitespace-nowrap ${e.action.endsWith('failed') ? 'text-danger' : ''}`}>{LABELS[e.action] ?? e.action}</td>
                   <td className="px-4 py-2.5 font-mono text-xs">{e.user ? `@${e.user.username}` : '—'}</td>
                   <td className="px-4 py-2.5 font-mono text-xs max-w-[180px] truncate" title={e.target ?? ''}>{e.target ?? '—'}</td>
                   <td className="px-4 py-2.5 font-mono text-xs text-ink-3">{e.ip ?? '—'}</td>
@@ -68,7 +68,7 @@ export default function AdminAudit() {
       {pages > 1 && (
         <div className="mt-6 flex items-center justify-center gap-3">
           <IconButton label="Précédent" disabled={page <= 1} onClick={() => setPage(page - 1)}><ChevronLeft /></IconButton>
-          <span className="text-sm font-bold">{page} / {pages}</span>
+          <span className="text-sm font-semibold">{page} / {pages}</span>
           <IconButton label="Suivant" disabled={page >= pages} onClick={() => setPage(page + 1)}><ChevronRight /></IconButton>
         </div>
       )}

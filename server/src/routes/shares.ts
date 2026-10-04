@@ -3,13 +3,14 @@ import { z } from 'zod';
 import { db } from '../db/knex.js';
 import { requireAuth, isOwnerOrAdmin } from '../middleware/auth.js';
 import {
-  assertCapacity, computeExpiry, createPendingShare, finalizeShare, HttpError, purgeShare, resolveVisibility, shareDTO,
+  assertCapacity, computeExpiry, createPendingShare, finalizeShare, HttpError, purgeShare, resolveVisibility, shareDTO, shareMailVars,
   type FileRow, type ShareRow,
 } from '../services/shares.js';
 import { effectiveLimits, hashPassword } from '../services/users.js';
 import { audit } from '../services/audit.js';
-import { ah } from '../utils/http.js';
-import { shareOptionsSchema, uuid } from '../utils/schemas.js';
+import { notifyEvent } from '../services/mail.js';
+import { ah, baseUrl } from '../utils/http.js';
+import { recipientsSchema, shareOptionsSchema, uuid } from '../utils/schemas.js';
 
 export const sharesRouter = Router();
 sharesRouter.use(requireAuth);
@@ -54,7 +55,12 @@ sharesRouter.post('/', ah(async (req, res) => {
 /** Step 2: once every tus upload finished, publish the link. */
 sharesRouter.post('/:id/finalize', ah(async (req, res) => {
   const share = await ownShare(req.user!.id, req.params.id);
+  const { recipients } = z.object({ recipients: recipientsSchema }).parse(req.body ?? {});
   const ready = await finalizeShare(share.id);
+  if (recipients.length) {
+    notifyEvent('share_invite', recipients, { ...(await shareMailVars(req, ready)), sender: req.user!.display_name }, baseUrl(req));
+    audit(req, 'share.sent', ready.id, { recipients: recipients.length });
+  }
   audit(req, 'share.created', ready.id, { files: ready.file_count, size: Number(ready.total_size), visibility: ready.visibility, source: 'web' });
   res.json(await shareDTO(ready));
 }));

@@ -9,6 +9,7 @@ import { useApp } from '@/store/app';
 import { absolute, dateTime, relative } from '@/lib/format';
 import { Badge, Button, Confirm, CopyLink, Empty, Field, IconButton, Input, Modal, PageLoader, SectionTitle, Segmented, Textarea, Toggle } from '@/components/ui';
 import { UserLinkEditor } from '@/components/LinkPolicy';
+import { RecipientsInput } from '@/components/RecipientsInput';
 
 const DURATIONS = [
   { label: '1 jour', hours: 24 }, { label: '7 jours', hours: 168 }, { label: '30 jours', hours: 720 }, { label: 'Jamais', hours: 0 },
@@ -57,7 +58,7 @@ function RequestCard({ r, onEdit, onChanged }: { r: RequestDTO; onEdit: () => vo
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="truncate text-xl font-extrabold">{r.title}</h3>
+            <h3 className="truncate text-base font-bold">{r.title}</h3>
             {expired ? <Badge tone="warn">Expirée</Badge> : !r.active ? <Badge>Fermée</Badge> : <Badge tone="success">Ouverte</Badge>}
           </div>
           <div className="mt-1 flex flex-wrap gap-x-4 text-[13px] text-ink-3">
@@ -70,7 +71,7 @@ function RequestCard({ r, onEdit, onChanged }: { r: RequestDTO; onEdit: () => vo
       </div>
       <CopyLink url={absolute(r.url)} className="mt-4" />
       <div className="mt-3 flex items-center justify-between">
-        <Link to="/my?source=request" className="text-sm font-bold text-ink-2 hover:text-ink underline decoration-accent decoration-2 underline-offset-4">Voir les fichiers reçus</Link>
+        <Link to="/my?source=request" className="text-sm font-semibold text-ink-2 hover:text-ink underline decoration-accent decoration-2 underline-offset-4">Voir les fichiers reçus</Link>
         <div className="flex">
           <IconButton label="Modifier" onClick={onEdit}><Pencil className="size-4" /></IconButton>
           <IconButton label="Supprimer" className="hover:!text-danger" onClick={() => setDel(true)}><Trash2 className="size-4" /></IconButton>
@@ -91,6 +92,8 @@ function RequestModal({ initial, onClose, onSaved }: { initial: RequestDTO | nul
   const [password, setPassword] = useState('');
   const [maxFiles, setMaxFiles] = useState(initial?.maxFiles ? String(initial.maxFiles) : '');
   const [maxSizeMb, setMaxSizeMb] = useState(initial?.maxSizeMb ? String(initial.maxSizeMb) : '');
+  const [recipients, setRecipients] = useState<string[]>([]);
+  const mailEnabled = useApp((s) => s.config?.mailEnabled);
   const [linkOverride, setLinkOverride] = useState<Partial<LinkOptions>>({});
   const [saving, setSaving] = useState(false);
 
@@ -105,7 +108,7 @@ function RequestModal({ initial, onClose, onSaved }: { initial: RequestDTO | nul
     };
     try {
       if (initial) await api.patch(`/api/requests/${initial.id}`, body);
-      else await api.post('/api/requests', { ...body, linkOverride: Object.keys(linkOverride).length ? linkOverride : null });
+      else await api.post('/api/requests', { ...body, recipients, linkOverride: Object.keys(linkOverride).length ? linkOverride : null });
       toast.success(initial ? 'Demande mise à jour' : 'Demande créée');
       onSaved();
     } catch (err) { toast.error(errorMessage(err)); } finally { setSaving(false); }
@@ -125,6 +128,11 @@ function RequestModal({ initial, onClose, onSaved }: { initial: RequestDTO | nul
           <Field label="Fichiers max" hint="Vide = illimité"><Input type="number" min={0} value={maxFiles} onChange={(e) => setMaxFiles(e.target.value)} /></Field>
           <Field label="Taille max par dépôt (Mo)" hint="Vide = selon votre quota"><Input type="number" min={0} value={maxSizeMb} onChange={(e) => setMaxSizeMb(e.target.value)} /></Field>
         </div>
+        {!initial && mailEnabled && (
+          <Field label="Inviter par e-mail" hint="Le lien de dépôt leur est envoyé dès la création.">
+            <RecipientsInput value={recipients} onChange={setRecipients} />
+          </Field>
+        )}
         <Field label="Mot de passe" hint={initial?.hasPassword ? 'Laisser vide pour conserver l’actuel.' : 'Optionnel.'}>
           <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
         </Field>

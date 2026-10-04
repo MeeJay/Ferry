@@ -10,20 +10,20 @@ type Variant = 'accent' | 'ink' | 'outline' | 'ghost' | 'danger';
 type Size = 'sm' | 'md' | 'lg' | 'xl';
 
 const variants: Record<Variant, string> = {
-  accent: 'bg-accent text-accent-ink border-2 border-accent hover:brightness-95',
-  ink: 'bg-ink text-bg border-2 border-ink hover:bg-ink/90',
-  outline: 'bg-surface text-ink border-2 border-line hover:bg-surface-2',
-  ghost: 'bg-transparent text-ink border-2 border-transparent hover:bg-ink/5',
-  danger: 'bg-danger text-white border-2 border-danger hover:brightness-95',
+  accent: 'bg-grad text-white glow hover:brightness-110',
+  ink: 'bg-surface-2 text-ink hover:bg-surface-3',
+  outline: 'bg-surface-2 text-ink hover:bg-surface-3',
+  ghost: 'bg-transparent text-ink hover:bg-ink/5',
+  danger: 'bg-danger text-white hover:brightness-110',
 };
 const sizes: Record<Size, string> = {
-  sm: 'h-8 px-3 text-[13px] gap-1.5 rounded-lg',
-  md: 'h-10 px-4 text-sm gap-2 rounded-xl',
-  lg: 'h-12 px-5 text-[15px] gap-2 rounded-xl',
-  xl: 'h-16 px-8 text-lg gap-3 rounded-2xl',
+  sm: 'h-7 px-2.5 text-xs gap-1.5 rounded-md',
+  md: 'h-8 px-3 text-[13px] gap-1.5 rounded-md',
+  lg: 'h-9 px-4 text-[13px] gap-2 rounded-md',
+  xl: 'h-11 px-6 text-[15px] gap-2 rounded-md',
 };
 
-const buttonBase = 'inline-flex items-center justify-center font-bold whitespace-nowrap select-none transition-[background,filter,transform] active:translate-y-px disabled:opacity-50 disabled:pointer-events-none';
+const buttonBase = 'inline-flex items-center justify-center font-semibold whitespace-nowrap select-none transition-[background,filter,transform] duration-150 active:translate-y-px disabled:opacity-50 disabled:pointer-events-none';
 
 export const buttonClasses = (variant: Variant = 'outline', size: Size = 'md', className?: string) =>
   clsx(buttonBase, variants[variant], sizes[size], className);
@@ -56,7 +56,7 @@ export function IconButton({ label, className, children, ...rest }: ButtonHTMLAt
     <button
       aria-label={label}
       title={label}
-      className={clsx('inline-flex size-9 items-center justify-center rounded-xl text-ink-2 hover:text-ink hover:bg-ink/5 transition disabled:opacity-40', className)}
+      className={clsx('inline-flex size-8 items-center justify-center rounded-md text-ink-2 hover:text-ink hover:bg-ink/5 transition disabled:opacity-40', className)}
       {...rest}
     >
       {children}
@@ -66,10 +66,10 @@ export function IconButton({ label, className, children, ...rest }: ButtonHTMLAt
 
 // ── Form controls ──────────────────────────────────────────────────────────
 
-const control = 'w-full bg-surface border-2 border-line-soft rounded-xl px-3.5 text-[15px] text-ink placeholder:text-ink-3 transition focus:border-ink focus:outline-none disabled:opacity-60';
+const control = 'w-full bg-surface-2 rounded-md px-3 text-[13px] text-ink placeholder:text-ink-3 transition hover:bg-surface-3 focus:bg-surface-3 focus:ring-2 focus:ring-accent/50 focus:outline-none disabled:opacity-60';
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input({ className, ...rest }, ref) {
-  return <input ref={ref} className={clsx(control, 'h-11', className)} {...rest} />;
+  return <input ref={ref} className={clsx(control, 'h-9', className)} {...rest} />;
 });
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(function Textarea({ className, ...rest }, ref) {
@@ -78,7 +78,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<H
 
 export function Select({ className, children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
-    <select className={clsx(control, 'h-11 pr-9 appearance-none bg-no-repeat bg-[right_0.75rem_center] bg-[length:16px]', className)}
+    <select className={clsx(control, 'h-9 pr-9 appearance-none bg-no-repeat bg-[right_0.75rem_center] bg-[length:16px]', className)}
       style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.5'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")" }}
       {...rest}>
       {children}
@@ -89,7 +89,7 @@ export function Select({ className, children, ...rest }: SelectHTMLAttributes<HT
 export function Field({ label, hint, locked, children, className }: { label: ReactNode; hint?: ReactNode; locked?: boolean; children: ReactNode; className?: string }) {
   return (
     <label className={clsx('block', className)}>
-      <span className="mb-1.5 flex items-center gap-2 text-[13px] font-bold text-ink">
+      <span className="mb-1.5 flex items-center gap-2 text-[13px] font-semibold text-ink">
         {label}
         {locked && <LockTag />}
       </span>
@@ -110,18 +110,18 @@ export function Toggle({ checked, onChange, disabled, label, description }: {
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={clsx(
-        'relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border-2 transition disabled:opacity-50',
-        checked ? 'bg-accent border-accent' : 'bg-surface-2 border-line-soft',
+        'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition disabled:opacity-50',
+        checked ? 'bg-grad' : 'bg-surface-3',
       )}
     >
-      <span className={clsx('inline-block size-5 rounded-full bg-white shadow-sm transition-transform', checked ? 'translate-x-[22px]' : 'translate-x-0.5')} />
+      <span className={clsx('inline-block size-[18px] rounded-full bg-white shadow-sm transition-transform', checked ? 'translate-x-[23px]' : 'translate-x-[3px]')} />
     </button>
   );
   if (!label) return sw;
   return (
     <div className="flex items-start justify-between gap-4">
       <div>
-        <div className="text-sm font-bold">{label}</div>
+        <div className="text-sm font-semibold">{label}</div>
         {description && <div className="text-xs text-ink-3 mt-0.5">{description}</div>}
       </div>
       {sw}
@@ -133,16 +133,16 @@ export function Segmented<T extends string | number>({ value, onChange, options,
   value: T; onChange: (v: T) => void; options: { value: T; label: ReactNode }[]; disabled?: boolean; size?: 'sm' | 'md';
 }) {
   return (
-    <div className={clsx('inline-flex flex-wrap gap-1 rounded-xl bg-surface-2 p-1', disabled && 'opacity-50 pointer-events-none')}>
+    <div className={clsx('inline-flex flex-wrap gap-0.5 rounded-md bg-surface-2 p-0.5', disabled && 'opacity-50 pointer-events-none')}>
       {options.map((o) => (
         <button
           key={String(o.value)}
           type="button"
           onClick={() => onChange(o.value)}
           className={clsx(
-            'rounded-lg font-bold transition',
-            size === 'sm' ? 'px-2.5 h-7 text-xs' : 'px-3.5 h-9 text-[13px]',
-            value === o.value ? 'bg-ink text-bg' : 'text-ink-2 hover:text-ink',
+            'rounded font-semibold transition',
+            size === 'sm' ? 'px-2 h-6 text-[11px]' : 'px-3 h-7 text-xs',
+            value === o.value ? 'bg-grad text-white' : 'text-ink-2 hover:text-ink hover:bg-surface-3',
           )}
         >
           {o.label}
@@ -157,18 +157,18 @@ export function Segmented<T extends string | number>({ value, onChange, options,
 export function Badge({ tone = 'neutral', children, className }: { tone?: 'neutral' | 'accent' | 'success' | 'danger' | 'warn' | 'ink'; children: ReactNode; className?: string }) {
   const tones = {
     neutral: 'bg-surface-2 text-ink-2',
-    accent: 'bg-accent text-accent-ink',
+    accent: 'bg-grad text-white',
     success: 'bg-success/15 text-success',
     danger: 'bg-danger/15 text-danger',
     warn: 'bg-warn/20 text-ink',
     ink: 'bg-ink text-bg',
   };
-  return <span className={clsx('inline-flex items-center gap-1 rounded-md px-2 h-6 text-[11px] font-extrabold uppercase tracking-wider', tones[tone], className)}>{children}</span>;
+  return <span className={clsx('inline-flex items-center gap-1 rounded px-1.5 h-5 text-[10px] font-bold uppercase tracking-wider', tones[tone], className)}>{children}</span>;
 }
 
 export function LockTag({ text = 'Imposé' }: { text?: string }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-md bg-ink/[.06] px-1.5 h-5 text-[10px] font-extrabold uppercase tracking-wider text-ink-3" title="Option verrouillée par l’administrateur">
+    <span className="inline-flex items-center gap-1 rounded bg-ink/[.06] px-1.5 h-5 text-[10px] font-bold uppercase tracking-wider text-ink-3" title="Option verrouillée par l’administrateur">
       <Lock className="size-3" /> {text}
     </span>
   );
@@ -185,16 +185,16 @@ export function PageLoader() {
 export function Progress({ value, className }: { value: number; className?: string }) {
   return (
     <div className={clsx('h-2 w-full overflow-hidden rounded-full bg-surface-2', className)}>
-      <div className="h-full rounded-full bg-accent transition-[width] duration-200" style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
+      <div className="h-full rounded-full bg-grad glow transition-[width] duration-200" style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
     </div>
   );
 }
 
 export function Empty({ icon, title, children, action }: { icon: ReactNode; title: string; children?: ReactNode; action?: ReactNode }) {
   return (
-    <div className="card-soft border-dashed flex flex-col items-center text-center px-6 py-16">
-      <div className="mb-4 flex size-14 items-center justify-center rounded-2xl bg-surface-2 text-ink-2">{icon}</div>
-      <div className="font-display text-xl font-extrabold">{title}</div>
+    <div className="card-soft border-dashed flex flex-col items-center text-center px-5 py-12">
+      <div className="mb-4 flex size-14 items-center justify-center rounded-lg bg-grad-soft text-accent">{icon}</div>
+      <div className="font-display text-base font-bold">{title}</div>
       {children && <div className="mt-1.5 max-w-sm text-sm text-ink-3">{children}</div>}
       {action && <div className="mt-5">{action}</div>}
     </div>
@@ -219,13 +219,13 @@ export function CopyLink({ url, size = 'md', className }: { url: string; size?: 
   const [done, setDone] = useState(false);
   useEffect(() => { if (done) { const t = setTimeout(() => setDone(false), 1500); return () => clearTimeout(t); } }, [done]);
   return (
-    <div className={clsx('flex items-stretch rounded-xl border-2 border-line bg-surface overflow-hidden', className)}>
-      <div className={clsx('flex-1 min-w-0 truncate font-mono flex items-center', size === 'lg' ? 'px-4 text-base h-14' : 'px-3 text-[13px] h-10')} title={url}>
+    <div className={clsx('flex items-stretch rounded-md bg-surface-2 overflow-hidden', className)}>
+      <div className={clsx('flex-1 min-w-0 truncate font-mono flex items-center', size === 'lg' ? 'px-4 text-base h-11' : 'px-3 text-[13px] h-10')} title={url}>
         {url.replace(/^https?:\/\//, '')}
       </div>
       <button
         onClick={() => { copyText(url); setDone(true); }}
-        className={clsx('flex items-center gap-2 bg-ink text-bg font-bold transition hover:bg-ink/90', size === 'lg' ? 'px-5' : 'px-3 text-sm')}
+        className={clsx('flex items-center gap-2 bg-grad text-white font-semibold transition hover:brightness-110', size === 'lg' ? 'px-5' : 'px-3 text-sm')}
       >
         {done ? <Check className="size-4" /> : <Copy className="size-4" />}
         {size === 'lg' && (done ? 'Copié' : 'Copier')}
@@ -249,15 +249,15 @@ export function Modal({ open, onClose, title, children, footer, width = 'max-w-l
   }, [open, onClose]);
   if (!open) return null;
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-6">
-      <div className="absolute inset-0 bg-black/50 animate-[fade-up_150ms_ease-out]" onClick={onClose} />
-      <div className={clsx('relative w-full card rounded-b-none sm:rounded-2xl animate-pop max-h-[92vh] flex flex-col', width)}>
-        <div className="flex items-center justify-between gap-4 px-6 pt-5 pb-3">
-          <h2 className="text-2xl font-extrabold">{title}</h2>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-5">
+      <div className="absolute inset-0 bg-[#07051a]/70 backdrop-blur-sm animate-[fade-up_150ms_ease-out]" onClick={onClose} />
+      <div className={clsx('relative w-full card !bg-surface rounded-b-none sm:rounded-lg animate-pop max-h-[92vh] flex flex-col', width)}>
+        <div className="flex items-center justify-between gap-4 px-5 pt-5 pb-3">
+          <h2 className="text-lg font-bold">{title}</h2>
           <IconButton label="Fermer" onClick={onClose}><X className="size-5" /></IconButton>
         </div>
-        <div className="px-6 pb-6 overflow-y-auto scroll-thin">{children}</div>
-        {footer && <div className="flex justify-end gap-2 border-t-2 border-line-soft px-6 py-4">{footer}</div>}
+        <div className="px-5 pb-6 overflow-y-auto scroll-thin">{children}</div>
+        {footer && <div className="flex justify-end gap-2 px-5 py-4">{footer}</div>}
       </div>
     </div>,
     document.body,
@@ -270,7 +270,7 @@ export function Confirm({ open, onClose, onConfirm, title, children, confirmLabe
   return (
     <Modal open={open} onClose={onClose} title={title} width="max-w-md"
       footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button variant="danger" loading={loading} onClick={onConfirm}>{confirmLabel}</Button></>}>
-      <div className="text-[15px] text-ink-2">{children}</div>
+      <div className="text-sm text-ink-2">{children}</div>
     </Modal>
   );
 }
@@ -279,8 +279,8 @@ export function SectionTitle({ title, subtitle, action }: { title: ReactNode; su
   return (
     <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
       <div>
-        <h1 className="text-4xl sm:text-5xl font-extrabold leading-[0.95]">{title}</h1>
-        {subtitle && <p className="mt-3 text-ink-2">{subtitle}</p>}
+        <h1 className="text-2xl sm:text-3xl font-bold leading-[0.95]">{title}</h1>
+        {subtitle && <p className="mt-2 text-sm text-ink-2">{subtitle}</p>}
       </div>
       {action}
     </div>

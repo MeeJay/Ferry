@@ -6,52 +6,116 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Ferry design tokens — flat, bold, two themes. Values are RGB triplets so
-   Tailwind opacity modifiers work (bg-ink/10). The accent comes from the
-   instance branding at runtime (see lib/theme.ts). */
+/* Ferry design tokens — "Signal": deep navy, blue → sky accent, a faint grid
+   and a spotlight that follows the pointer. Depth comes from tone, not borders:
+   bg < surface (cards) ; surface-2 = inputs / pill containers ; surface-3 =
+   hover. Values are RGB triplets so Tailwind opacity modifiers work.
+   --accent / --accent-2 come from the instance branding (lib/theme.ts). */
 :root {
-  --bg: 244 244 240;
-  --surface: 255 255 255;
-  --surface-2: 234 234 228;
-  --ink: 12 12 12;
-  --ink-2: 74 74 70;
-  --ink-3: 132 132 126;
-  --line: 12 12 12;
-  --line-soft: 216 216 208;
-  --accent: 255 90 31;
-  --accent-ink: 12 12 12;
-  --danger: 225 45 57;
-  --success: 22 160 90;
-  --warn: 230 160 0;
+  --bg: 236 241 250;
+  --surface: 249 251 255;
+  --surface-2: 226 233 246;
+  --surface-3: 215 225 242;
+  --ink: 17 27 52;
+  --ink-2: 72 86 120;
+  --ink-3: 126 140 170;
+  --line: 214 223 240;
+  --line-soft: 226 233 246;
+  --accent: 37 99 235;
+  --accent-2: 14 165 233;
+  --accent-ink: 255 255 255;
+  --warm-1: 56 189 248;
+  --warm-2: 37 99 235;
+  --danger: 225 45 72;
+  --success: 16 163 110;
+  --warn: 217 140 0;
+  --card-shadow: 0 1px 2px rgb(20 40 90 / .05), 0 10px 28px -16px rgb(20 40 90 / .16);
+  --glow-strength: .28;
+  --spot: .14;
+  --cone: .30;
+  --grid: .55;
+  --mx: 62%;
+  --my: 14%;
   color-scheme: light;
 }
 .dark {
-  --bg: 10 10 11;
-  --surface: 20 20 22;
-  --surface-2: 32 32 35;
-  --ink: 244 244 238;
-  --ink-2: 168 168 162;
-  --ink-3: 108 108 104;
-  --line: 64 64 70;
-  --line-soft: 40 40 44;
-  --danger: 255 84 94;
-  --success: 52 211 128;
-  --warn: 255 196 40;
+  --bg: 4 7 16;
+  --surface: 11 16 31;
+  --surface-2: 17 24 45;
+  --surface-3: 24 32 58;
+  --ink: 228 236 252;
+  --ink-2: 152 168 204;
+  --ink-3: 92 108 146;
+  --line: 30 42 74;
+  --line-soft: 18 26 50;
+  --danger: 255 92 112;
+  --success: 52 211 153;
+  --warn: 251 191 36;
+  --card-shadow: none;
+  --glow-strength: .4;
+  --spot: .16;
+  --cone: .25;
+  --grid: .45;
   color-scheme: dark;
 }
 
 @layer base {
-  html { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
-  body { @apply bg-bg text-ink font-sans; font-feature-settings: 'cv11', 'ss01'; }
-  ::selection { background: rgb(var(--accent) / .35); }
-  :focus-visible { outline: 3px solid rgb(var(--accent)); outline-offset: 2px; }
-  h1, h2, h3 { @apply font-display; letter-spacing: -0.03em; }
+  html { font-size: 15px; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+  body { @apply bg-bg text-ink font-sans min-h-screen; font-feature-settings: 'cv11', 'ss01'; }
+  /* Spotlight: a soft disc that follows the pointer (--mx/--my set in
+     lib/spotlight.ts) over a fixed light cone falling from the top. */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(600px circle at var(--mx) var(--my), rgb(var(--accent-2) / var(--spot)), transparent 60%),
+      radial-gradient(ellipse 60% 45% at 50% -10%, rgb(var(--accent) / var(--cone)), transparent 70%);
+  }
+  /* Faint grid, fading out away from the top. */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-image:
+      linear-gradient(rgb(var(--line) / var(--grid)) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(var(--line) / var(--grid)) 1px, transparent 1px);
+    background-size: 44px 44px;
+    -webkit-mask-image: radial-gradient(ellipse 70% 60% at 55% 0%, #000, transparent 75%);
+    mask-image: radial-gradient(ellipse 70% 60% at 55% 0%, #000, transparent 75%);
+  }
+  ::selection { background: rgb(var(--accent) / .4); }
+  :focus-visible { outline: 2px solid rgb(var(--accent)); outline-offset: 2px; }
+  h1, h2, h3 { @apply font-display font-bold; letter-spacing: -0.025em; }
 }
 
 @layer components {
-  .card { @apply bg-surface border-2 border-line rounded-2xl; }
-  .card-soft { @apply bg-surface border-2 border-line-soft rounded-2xl; }
-  .label { @apply text-[11px] font-extrabold uppercase tracking-[0.12em] text-ink-3; }
-  .kbd { @apply font-mono text-xs px-1.5 py-0.5 rounded-md bg-surface-2 border border-line-soft; }
+  .card { @apply bg-surface rounded-lg; box-shadow: var(--card-shadow); }
+  .card-soft { @apply bg-surface/60 rounded-lg; }
+  .label { @apply text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-3; }
+  .kbd { @apply font-mono text-xs px-1.5 py-0.5 rounded bg-surface-2; }
   .scroll-thin { scrollbar-width: thin; }
+
+  .bg-grad { background-image: linear-gradient(135deg, rgb(var(--accent)), rgb(var(--accent-2))); }
+  .bg-grad-warm { background-image: linear-gradient(135deg, rgb(var(--warm-1)), rgb(var(--warm-2))); }
+  .bg-grad-soft { background-image: linear-gradient(135deg, rgb(var(--accent) / .16), rgb(var(--accent-2) / .10)); }
+  .text-grad {
+    background-image: linear-gradient(120deg, rgb(var(--accent)), rgb(var(--accent-2)) 55%, rgb(var(--warm-1)));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .glow { box-shadow: 0 10px 30px -10px rgb(var(--accent) / var(--glow-strength)), 0 4px 14px -6px rgb(var(--accent-2) / var(--glow-strength)); }
+  .glow-warm { box-shadow: 0 10px 30px -10px rgb(var(--warm-2) / var(--glow-strength)); }
+  /* Gradient hairline border (for hero tiles). */
+  .grad-border {
+    border: 1px solid transparent;
+    background:
+      linear-gradient(rgb(var(--surface)), rgb(var(--surface))) padding-box,
+      linear-gradient(135deg, rgb(var(--accent) / .7), rgb(var(--accent-2) / .5), rgb(var(--line))) border-box;
+  }
 }

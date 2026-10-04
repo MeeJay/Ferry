@@ -157,6 +157,15 @@ const migrations: Migration[] = [
       }
     },
   },
+  {
+    name: '002_profile_sharex',
+    async up(knex) {
+      await knex.schema.alterTable('quota_profiles', (t) => { t.boolean('sharex_enabled'); });
+    },
+    async down(knex) {
+      await knex.schema.alterTable('quota_profiles', (t) => { t.dropColumn('sharex_enabled'); });
+    },
+  },
 ];
 
 export const migrationSource: Knex.MigrationSource<Migration> = {

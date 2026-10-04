@@ -10,6 +10,7 @@ import { Button, buttonClasses, CopyLink, Field, Input, Progress, Segmented, Tex
 import { DropZone } from '@/components/DropZone';
 import { FileThumb } from '@/components/FileThumb';
 import { UserLinkEditor } from '@/components/LinkPolicy';
+import { RecipientsInput } from '@/components/RecipientsInput';
 import { absolute, EXPIRY_PRESETS, expiryLabel, formatBytes } from '@/lib/format';
 import { newId, uploadAll, type UploadItem } from '@/lib/upload';
 
@@ -31,6 +32,8 @@ export default function UploadPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [maxDownloads, setMaxDownloads] = useState('');
   const [notify, setNotify] = useState(false);
+  const [recipients, setRecipients] = useState<string[]>([]);
+  const mailEnabled = useApp((s) => s.config?.mailEnabled);
   const [linkOverride, setLinkOverride] = useState<Partial<LinkOptions>>({});
   const [showLink, setShowLink] = useState(false);
 
@@ -59,7 +62,7 @@ export default function UploadPage() {
 
   function reset() {
     setItems([]); setResult(null); setTitle(''); setMessage(''); setPassword(''); setUsePassword(false);
-    setMaxDownloads(''); setNotify(false); setLinkOverride({}); setPhase('pick');
+    setMaxDownloads(''); setNotify(false); setRecipients([]); setLinkOverride({}); setPhase('pick');
   }
 
   async function send() {
@@ -78,7 +81,7 @@ export default function UploadPage() {
       });
       const update = (id: string, patch: Partial<UploadItem>) => setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
       await uploadAll(items, share.uploadToken, share.chunkSize, update);
-      const done = await api.post<ShareDTO>(`/api/shares/${share.id}/finalize`);
+      const done = await api.post<ShareDTO>(`/api/shares/${share.id}/finalize`, { recipients });
       setResult(done);
       setPhase('done');
       useApp.getState().refreshMe();
@@ -96,12 +99,13 @@ export default function UploadPage() {
     const url = absolute(result.url);
     return (
       <div className="mx-auto max-w-3xl animate-fade-up">
-        <div className="flex size-16 items-center justify-center rounded-[30%] bg-success text-white"><Check className="size-9" strokeWidth={3} /></div>
-        <h1 className="mt-6 text-5xl sm:text-6xl font-extrabold leading-[0.95]">C’est en ligne.</h1>
+        <div className="flex size-14 items-center justify-center rounded-lg bg-success text-white"><Check className="size-9" strokeWidth={3} /></div>
+        <h1 className="mt-6 text-3xl sm:text-4xl font-bold leading-[0.95]">C’est en ligne.</h1>
         <p className="mt-3 text-lg text-ink-2">
           {result.fileCount} fichier{result.fileCount > 1 ? 's' : ''} · {formatBytes(result.totalSize)} ·{' '}
           {result.visibility === 'public' ? 'public' : 'privé, réservé aux comptes'}
           {result.expiresAt ? ` · expire le ${new Date(result.expiresAt).toLocaleDateString('fr-FR')}` : ' · sans expiration'}
+          {recipients.length > 0 && ` · envoyé par e-mail à ${recipients.length} destinataire${recipients.length > 1 ? 's' : ''}`}
         </p>
         <CopyLink url={url} size="lg" className="mt-8" />
         <div className="mt-6 flex flex-wrap gap-3">
@@ -118,8 +122,8 @@ export default function UploadPage() {
     return (
       <div className="animate-fade-up">
         <div className="mb-10 flex flex-wrap items-end justify-between gap-6">
-          <h1 className="text-5xl sm:text-7xl font-extrabold leading-[0.9]">Envoyer<span className="text-accent">.</span></h1>
-          <QuotaMeter used={limits.storageUsed} quota={limits.storageQuota} />
+          <h1 className="text-3xl sm:text-5xl font-bold leading-[0.9]">Envoyer<span className="text-grad">.</span></h1>
+          <div className="lg:hidden"><QuotaMeter used={limits.storageUsed} quota={limits.storageQuota} /></div>
         </div>
         <DropZone onFiles={addFiles} />
         <div className="mt-6 flex flex-wrap gap-x-8 gap-y-2 text-sm text-ink-3">
@@ -138,7 +142,7 @@ export default function UploadPage() {
       <section>
         <div className="mb-6 flex items-end justify-between gap-4">
           <div>
-            <h1 className="text-4xl sm:text-5xl font-extrabold leading-[0.95]">{busy ? 'Envoi en cours…' : `${items.length} fichier${items.length > 1 ? 's' : ''}`}</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold leading-[0.95]">{busy ? 'Envoi en cours…' : `${items.length} fichier${items.length > 1 ? 's' : ''}`}</h1>
             <p className="mt-2 text-ink-2 font-semibold">{formatBytes(total)}</p>
           </div>
           {!busy && <Button variant="ghost" icon={<RotateCcw className="size-4" />} onClick={reset}>Tout retirer</Button>}
@@ -146,12 +150,12 @@ export default function UploadPage() {
 
         {busy && <Progress value={overall} className="!h-3 mb-6" />}
 
-        <ul className="card divide-y-2 divide-line-soft overflow-hidden">
+        <ul className="card divide-y divide-line-soft overflow-hidden">
           {items.map((i) => (
             <li key={i.id} className="flex items-center gap-4 px-4 py-3">
-              <FileThumb mime={i.file.type} name={i.file.name} className="size-11 rounded-lg shrink-0" />
+              <FileThumb mime={i.file.type} name={i.file.name} className="size-10 rounded-md shrink-0" />
               <div className="min-w-0 flex-1">
-                <div className="truncate font-bold">{i.file.name}</div>
+                <div className="truncate font-semibold">{i.file.name}</div>
                 <div className="flex items-center gap-3 text-xs text-ink-3">
                   <span>{formatBytes(i.file.size)}</span>
                   {i.status === 'error' && <span className="text-danger font-semibold">{i.error}</span>}
@@ -166,7 +170,7 @@ export default function UploadPage() {
           ))}
         </ul>
 
-        {!busy && <DropZone onFiles={addFiles} compact className="mt-4"><div className="flex items-center justify-center gap-2 font-bold text-ink-2"><Plus className="size-5" /> Ajouter des fichiers</div></DropZone>}
+        {!busy && <DropZone onFiles={addFiles} compact className="mt-4"><div className="flex items-center justify-center gap-2 font-semibold text-ink-2"><Plus className="size-5" /> Ajouter des fichiers</div></DropZone>}
       </section>
 
       <aside className={clsx('space-y-6', busy && 'opacity-60 pointer-events-none')}>
@@ -201,11 +205,16 @@ export default function UploadPage() {
             <Input type="number" min={0} value={maxDownloads} onChange={(e) => setMaxDownloads(e.target.value)} placeholder="Illimité" />
           </Field>
           <Field label="Message"><Textarea rows={2} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Affiché sur la page de téléchargement" /></Field>
+          {mailEnabled && (
+            <Field label="Envoyer le lien par e-mail" hint="Entrée ou virgule pour ajouter une adresse">
+              <RecipientsInput value={recipients} onChange={setRecipients} />
+            </Field>
+          )}
           <Toggle checked={notify} onChange={setNotify} label="M’avertir au premier téléchargement" description={me.email ? me.email : 'Aucune adresse mail sur votre compte'} disabled={!me.email} />
         </div>
 
         <div className="card overflow-hidden">
-          <button onClick={() => setShowLink(!showLink)} className="flex w-full items-center justify-between px-5 h-14 font-bold">
+          <button onClick={() => setShowLink(!showLink)} className="flex w-full items-center justify-between px-5 h-11 font-semibold">
             Format du lien <ChevronDown className={clsx('size-5 transition', showLink && 'rotate-180')} />
           </button>
           {showLink && (
@@ -217,7 +226,7 @@ export default function UploadPage() {
           )}
         </div>
 
-        {problems.length > 0 && <div className="rounded-xl border-2 border-danger bg-danger/10 px-4 py-3 text-sm font-semibold text-danger">{problems.join(' · ')}</div>}
+        {problems.length > 0 && <div className="rounded-md bg-danger/10 px-4 py-3 text-sm font-semibold text-danger">{problems.join(' · ')}</div>}
         <Button variant="accent" size="xl" className="w-full" disabled={!items.length || problems.length > 0} loading={busy}
           icon={<Send className="size-5" />} onClick={send}>
           {busy ? `${Math.round(overall)} %` : 'Envoyer'}
@@ -230,10 +239,10 @@ export default function UploadPage() {
 function VisibilityCard({ active, onClick, icon, title, text, disabled }: { active: boolean; onClick: () => void; icon: React.ReactNode; title: string; text: string; disabled?: boolean }) {
   return (
     <button type="button" disabled={disabled} onClick={onClick}
-      className={clsx('rounded-xl border-2 p-3 text-left transition disabled:opacity-40',
-        active ? 'border-ink bg-ink text-bg' : 'border-line-soft hover:border-ink')}>
-      <div className="flex items-center gap-2 font-extrabold">{icon}{title}</div>
-      <div className={clsx('mt-1 text-xs', active ? 'text-bg/70' : 'text-ink-3')}>{text}</div>
+      className={clsx('rounded-md p-3 text-left transition disabled:opacity-40',
+        active ? ' bg-grad text-white glow' : 'bg-surface-2 hover:bg-surface-3')}>
+      <div className="flex items-center gap-2 font-bold">{icon}{title}</div>
+      <div className={clsx('mt-1 text-xs', active ? 'text-white/75' : 'text-ink-3')}>{text}</div>
     </button>
   );
 }
@@ -243,7 +252,7 @@ export function QuotaMeter({ used, quota }: { used: number; quota: number }) {
   const pct = (used / quota) * 100;
   return (
     <div className="w-56">
-      <div className="mb-1.5 flex justify-between text-xs font-bold"><span>{formatBytes(used)}</span><span className="text-ink-3">{formatBytes(quota)}</span></div>
+      <div className="mb-1.5 flex justify-between text-xs font-semibold"><span>{formatBytes(used)}</span><span className="text-ink-3">{formatBytes(quota)}</span></div>
       <Progress value={pct} />
     </div>
   );

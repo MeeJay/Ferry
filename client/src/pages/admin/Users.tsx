@@ -35,15 +35,15 @@ export default function AdminUsers() {
       <div className="card overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b-2 border-line text-left">
+            <tr className=" text-left">
               {['Utilisateur', 'Rôle', 'Profil', 'Stockage', 'Partages', 'Dernière connexion', ''].map((h) => <th key={h} className="label px-4 py-3 !text-[10px]">{h}</th>)}
             </tr>
           </thead>
-          <tbody className="divide-y-2 divide-line-soft">
+          <tbody className="divide-y divide-line-soft">
             {users.map((u) => (
               <tr key={u.id} className={u.disabled ? 'opacity-50' : ''}>
                 <td className="px-4 py-3">
-                  <div className="font-bold">{u.displayName}</div>
+                  <div className="font-semibold">{u.displayName}</div>
                   <div className="flex items-center gap-2 text-xs text-ink-3"><span className="font-mono">@{u.username}</span>{u.authProvider === 'oidc' && <Badge className="!h-5">Entra ID</Badge>}{u.disabled && <Badge tone="danger" className="!h-5">Désactivé</Badge>}</div>
                 </td>
                 <td className="px-4 py-3">{u.role === 'admin' ? <Badge tone="ink">Admin</Badge> : <span className="text-ink-2">Utilisateur</span>}</td>

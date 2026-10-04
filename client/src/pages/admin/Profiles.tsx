@@ -31,7 +31,7 @@ export default function AdminProfiles() {
             <div key={p.id} className="card p-5">
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2"><h3 className="text-xl font-extrabold">{p.name}</h3>{p.isDefault && <Badge tone="accent"><Star className="size-3" />Défaut</Badge>}</div>
+                  <div className="flex items-center gap-2"><h3 className="text-base font-bold">{p.name}</h3>{p.isDefault && <Badge tone="accent"><Star className="size-3" />Défaut</Badge>}</div>
                   {p.description && <p className="mt-1 text-sm text-ink-3">{p.description}</p>}
                 </div>
                 <IconButton label="Modifier" onClick={() => setEditing(p)}><Pencil className="size-4" /></IconButton>
@@ -65,7 +65,7 @@ function NumField({ label, value, onChange, unit }: { label: string; value: numb
     <Field label={label} hint={value === null ? 'Hérité' : value === 0 ? 'Illimité' : undefined}>
       <div className="relative">
         <Input type="number" min={0} value={value ?? ''} placeholder="Hérité" onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))} className="!pr-12" />
-        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-ink-3">{unit}</span>
+        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-ink-3">{unit}</span>
       </div>
     </Field>
   );
@@ -74,7 +74,7 @@ function NumField({ label, value, onChange, unit }: { label: string; value: numb
 function ProfileModal({ initial, onClose, onSaved }: { initial: QuotaProfile | null; onClose: () => void; onSaved: () => void }) {
   const [p, setP] = useState<Omit<QuotaProfile, 'id'>>(() => initial ?? {
     name: '', description: '', maxFileSizeMb: null, maxShareSizeMb: null, storageQuotaMb: null, defaultExpiryHours: null,
-    maxExpiryHours: null, allowNeverExpire: null, allowPublic: null, linkPolicy: {}, oidcGroups: [], isDefault: false,
+    maxExpiryHours: null, allowNeverExpire: null, allowPublic: null, sharexEnabled: null, linkPolicy: {}, oidcGroups: [], isDefault: false,
   });
   const [groups, setGroups] = useState((initial?.oidcGroups ?? []).join('\n'));
   const [saving, setSaving] = useState(false);
@@ -113,6 +113,7 @@ function ProfileModal({ initial, onClose, onSaved }: { initial: QuotaProfile | n
           <div className="mt-5 grid gap-5 sm:grid-cols-2">
             <Field label="Liens sans expiration"><Segmented size="sm" value={toTri(p.allowNeverExpire)} onChange={(t) => set('allowNeverExpire', fromTri(t))} options={[{ value: 'inherit', label: 'Hérité' }, { value: 'yes', label: 'Autorisés' }, { value: 'no', label: 'Interdits' }]} /></Field>
             <Field label="Liens publics"><Segmented size="sm" value={toTri(p.allowPublic)} onChange={(t) => set('allowPublic', fromTri(t))} options={[{ value: 'inherit', label: 'Hérité' }, { value: 'yes', label: 'Autorisés' }, { value: 'no', label: 'Interdits' }]} /></Field>
+            <Field label="ShareX & API"><Segmented size="sm" value={toTri(p.sharexEnabled)} onChange={(t) => set('sharexEnabled', fromTri(t))} options={[{ value: 'inherit', label: 'Hérité' }, { value: 'yes', label: 'Activé' }, { value: 'no', label: 'Désactivé' }]} /></Field>
           </div>
         </div>
         <Field label="Groupes Entra ID (Object ID)" hint="Un par ligne. À chaque connexion SSO, un membre de l’un de ces groupes reçoit ce profil.">

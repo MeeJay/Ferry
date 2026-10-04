@@ -1,5 +1,5 @@
-// Applies the saved theme before first paint (no light/dark flash).
+// Applies the theme before first paint (no flash). Dark is Ferry's signature
+// theme: it is the default unless the visitor picked light.
 try {
-  var t = localStorage.getItem('ferry.theme');
-  if (t === 'dark' || (!t && matchMedia('(prefers-color-scheme: dark)').matches)) document.documentElement.classList.add('dark');
-} catch (e) {}
+  if (localStorage.getItem('ferry.theme') !== 'light') document.documentElement.classList.add('dark');
+} catch (e) { document.documentElement.classList.add('dark'); }

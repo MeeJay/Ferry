@@ -25,7 +25,7 @@ export function FileThumb({ mime, name, thumb, className, kind }: { mime: string
   return (
     <div className={clsx('flex flex-col items-center justify-center gap-1 bg-surface-2 text-ink-2', className)}>
       <Icon className="size-[40%] max-h-10 max-w-10" strokeWidth={1.75} />
-      {ext && <span className="text-[10px] font-extrabold tracking-widest text-ink-3">{ext}</span>}
+      {ext && <span className="text-[10px] font-bold tracking-widest text-ink-3">{ext}</span>}
     </div>
   );
 }

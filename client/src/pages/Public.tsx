@@ -33,9 +33,9 @@ export default function PublicPage() {
 
 function Message({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
   return (
-    <div className="mx-auto max-w-lg py-16 text-center">
-      <div className="mx-auto flex size-20 items-center justify-center rounded-[30%] bg-surface-2 text-ink-2">{icon}</div>
-      <h1 className="mt-8 text-5xl font-extrabold">{title}</h1>
+    <div className="mx-auto max-w-lg py-12 text-center">
+      <div className="mx-auto flex size-20 items-center justify-center rounded-lg bg-grad-soft text-accent">{icon}</div>
+      <h1 className="mt-8 text-3xl font-bold">{title}</h1>
       <p className="mt-4 text-lg text-ink-2">{children}</p>
     </div>
   );
@@ -63,8 +63,8 @@ function PasswordGate({ path, title, onUnlocked }: { path: string; title?: strin
   }
   return (
     <form onSubmit={submit} className="mx-auto max-w-md py-12">
-      <div className="flex size-16 items-center justify-center rounded-[30%] bg-ink text-bg"><KeyRound className="size-8" /></div>
-      <h1 className="mt-8 text-5xl font-extrabold">Protégé</h1>
+      <div className="flex size-16 items-center justify-center rounded-lg bg-grad text-white"><KeyRound className="size-8" /></div>
+      <h1 className="mt-8 text-3xl font-bold">Protégé</h1>
       <p className="mt-3 text-lg text-ink-2">{title ? <>« {title} » est protégé par un mot de passe.</> : 'Ce lien est protégé par un mot de passe.'}</p>
       <div className="mt-8 flex gap-2">
         <Input autoFocus type="password" value={password} onChange={(e) => { setPassword(e.target.value); setError(''); }} placeholder="Mot de passe" className="!h-12" />
@@ -92,10 +92,10 @@ function Preview({ file }: { file: FileDTO }) {
   if (/^video\//.test(file.mime)) return <video src={src} controls className="max-h-[70vh] w-full bg-black" />;
   if (/^audio\//.test(file.mime)) return <div className="p-8"><audio src={src} controls className="w-full" /></div>;
   if (file.mime === 'application/pdf') return <iframe src={src} title={file.name} className="h-[75vh] w-full bg-white" />;
-  if (isText && text !== null) return <pre className="max-h-[70vh] overflow-auto p-6 font-mono text-[13px] leading-relaxed scroll-thin whitespace-pre-wrap break-words">{text}</pre>;
+  if (isText && text !== null) return <pre className="max-h-[70vh] overflow-auto p-5 font-mono text-[13px] leading-relaxed scroll-thin whitespace-pre-wrap break-words">{text}</pre>;
   return (
-    <div className="flex flex-col items-center justify-center py-16">
-      <FileThumb mime={file.mime} name={file.name} className="size-32 rounded-3xl" />
+    <div className="flex flex-col items-center justify-center py-12">
+      <FileThumb mime={file.mime} name={file.name} className="size-32 rounded-lg" />
       <p className="mt-4 text-ink-3">Pas d’aperçu pour ce type de fichier.</p>
     </div>
   );
@@ -118,10 +118,10 @@ function ShareView({ share, owner, fileSlug }: { share: ShareDTO; owner: string;
   if (current) {
     return (
       <div className="animate-fade-up">
-        {!single && <Link to={share.url} className="mb-6 inline-flex items-center gap-2 text-sm font-bold text-ink-2 hover:text-ink"><ArrowLeft className="size-4" />{share.title || 'Tous les fichiers'}</Link>}
+        {!single && <Link to={share.url} className="mb-6 inline-flex items-center gap-2 text-sm font-semibold text-ink-2 hover:text-ink"><ArrowLeft className="size-4" />{share.title || 'Tous les fichiers'}</Link>}
         <div className="flex flex-wrap items-end justify-between gap-6">
           <div className="min-w-0">
-            <h1 className="break-words text-4xl sm:text-5xl font-extrabold leading-[0.95]">{current.name}</h1>
+            <h1 className="break-words text-2xl sm:text-3xl font-bold leading-[0.95]">{current.name}</h1>
             <div className="mt-3">{meta}</div>
           </div>
           <a href={`${current.rawUrl}?dl`} className={buttonClasses('accent', 'xl')}><Download className="size-5" />Télécharger <span className="opacity-70 font-semibold">{formatBytes(current.size)}</span></a>
@@ -137,7 +137,7 @@ function ShareView({ share, owner, fileSlug }: { share: ShareDTO; owner: string;
     <div className="animate-fade-up">
       <div className="flex flex-wrap items-end justify-between gap-6">
         <div className="min-w-0">
-          <h1 className="break-words text-4xl sm:text-6xl font-extrabold leading-[0.92]">{share.title || `${share.files.length} fichiers`}</h1>
+          <h1 className="break-words text-2xl sm:text-4xl font-bold leading-[0.92]">{share.title || `${share.files.length} fichiers`}</h1>
           <div className="mt-3">{meta}</div>
         </div>
         <a href={`/raw${share.url}?dl`} className={buttonClasses('accent', 'xl')}><Download className="size-5" />Tout télécharger <span className="opacity-70 font-semibold">.zip</span></a>
@@ -146,15 +146,15 @@ function ShareView({ share, owner, fileSlug }: { share: ShareDTO; owner: string;
       <div className="mt-10 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
         {share.files.map((f) => (
           <div key={f.id} className="group card overflow-hidden flex flex-col">
-            <Link to={f.url} className="block aspect-[4/3] overflow-hidden border-b-2 border-line">
+            <Link to={f.url} className="block aspect-[4/3] overflow-hidden">
               <FileThumb mime={f.mime} name={f.name} thumb={f.hasThumb ? `${f.rawUrl}?thumb` : null} className="size-full transition group-hover:scale-[1.03]" />
             </Link>
             <div className="flex items-center gap-2 p-3">
               <Link to={f.url} className="min-w-0 flex-1">
-                <div className="truncate text-sm font-bold">{f.name}</div>
+                <div className="truncate text-sm font-semibold">{f.name}</div>
                 <div className="text-xs text-ink-3">{formatBytes(f.size)}</div>
               </Link>
-              <a href={`${f.rawUrl}?dl`} className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-ink text-bg hover:bg-ink/85" aria-label={`Télécharger ${f.name}`}><Download className="size-4" /></a>
+              <a href={`${f.rawUrl}?dl`} className="flex size-9 shrink-0 items-center justify-center rounded-md bg-grad text-white hover:brightness-110" aria-label={`Télécharger ${f.name}`}><Download className="size-4" /></a>
             </div>
           </div>
         ))}
@@ -165,7 +165,7 @@ function ShareView({ share, owner, fileSlug }: { share: ShareDTO; owner: string;
 }
 
 function ShareMessage({ text }: { text: string }) {
-  return <div className="mt-6 max-w-3xl rounded-2xl border-l-[6px] border-accent bg-surface px-5 py-4 text-[15px] whitespace-pre-wrap">{text}</div>;
+  return <div className="mt-6 max-w-3xl rounded-md border-l-[6px] border-accent bg-surface px-5 py-4 text-sm whitespace-pre-wrap">{text}</div>;
 }
 
 // ── Reverse share: drop page ───────────────────────────────────────────────
@@ -207,8 +207,8 @@ function DropPage({ res, path, onUnlocked }: { res: Extract<ResolveResult, { kin
   if (phase === 'done') {
     return (
       <div className="mx-auto max-w-xl py-12 text-center animate-fade-up">
-        <div className="mx-auto flex size-20 items-center justify-center rounded-[30%] bg-success text-white"><Check className="size-10" strokeWidth={3} /></div>
-        <h1 className="mt-8 text-5xl sm:text-6xl font-extrabold leading-[0.95]">Bien reçu, merci !</h1>
+        <div className="mx-auto flex size-20 items-center justify-center rounded-lg bg-success text-white"><Check className="size-10" strokeWidth={3} /></div>
+        <h1 className="mt-8 text-3xl sm:text-4xl font-bold leading-[0.95]">Bien reçu, merci !</h1>
         <p className="mt-4 text-lg text-ink-2">{items.length} fichier{items.length > 1 ? 's' : ''} transmis à <b className="text-ink">{res.owner.displayName}</b>.</p>
         <Button size="lg" className="mt-8" icon={<Plus className="size-5" />} onClick={() => { setItems([]); setPhase('pick'); }}>Envoyer d’autres fichiers</Button>
       </div>
@@ -220,17 +220,17 @@ function DropPage({ res, path, onUnlocked }: { res: Extract<ResolveResult, { kin
     <div className="grid gap-10 lg:grid-cols-[1fr_400px] animate-fade-up">
       <section>
         <div className="mb-3 flex items-center gap-2 label"><Inbox className="size-4" />Demande de {res.owner.displayName}</div>
-        <h1 className="text-5xl sm:text-6xl font-extrabold leading-[0.92]">{r.title}</h1>
+        <h1 className="text-3xl sm:text-4xl font-bold leading-[0.92]">{r.title}</h1>
         {r.message && <ShareMessage text={r.message} />}
         <div className="mt-8">
           {items.length === 0 ? <DropZone onFiles={add} /> : (
             <>
-              <ul className="card divide-y-2 divide-line-soft overflow-hidden">
+              <ul className="card divide-y divide-line-soft overflow-hidden">
                 {items.map((i) => (
                   <li key={i.id} className="flex items-center gap-4 px-4 py-3">
-                    <FileThumb mime={i.file.type} name={i.file.name} className="size-10 rounded-lg shrink-0" />
+                    <FileThumb mime={i.file.type} name={i.file.name} className="size-10 rounded-md shrink-0" />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate font-bold">{i.file.name}</div>
+                      <div className="truncate font-semibold">{i.file.name}</div>
                       <div className="text-xs text-ink-3">{formatBytes(i.file.size)}{i.error && <span className="ml-2 text-danger">{i.error}</span>}</div>
                       {i.status === 'uploading' && <Progress value={i.progress} className="mt-2 !h-1.5" />}
                     </div>
@@ -240,7 +240,7 @@ function DropPage({ res, path, onUnlocked }: { res: Extract<ResolveResult, { kin
                   </li>
                 ))}
               </ul>
-              {!busy && <DropZone onFiles={add} compact className="mt-4"><div className="flex items-center justify-center gap-2 font-bold text-ink-2"><Plus className="size-5" />Ajouter des fichiers</div></DropZone>}
+              {!busy && <DropZone onFiles={add} compact className="mt-4"><div className="flex items-center justify-center gap-2 font-semibold text-ink-2"><Plus className="size-5" />Ajouter des fichiers</div></DropZone>}
             </>
           )}
         </div>
@@ -252,8 +252,8 @@ function DropPage({ res, path, onUnlocked }: { res: Extract<ResolveResult, { kin
           <Field label="Message"><Textarea rows={3} value={message} onChange={(e) => setMessage(e.target.value)} /></Field>
         </div>
         <div className="text-sm text-ink-3 space-y-1">
-          {r.maxFiles && <div className={clsx(tooMany && 'text-danger font-bold')}>{items.length} / {r.maxFiles} fichier(s) maximum</div>}
-          {r.maxSizeMb && <div className={clsx(tooBig && 'text-danger font-bold')}>{formatBytes(total)} / {formatBytes(r.maxSizeMb * 1024 * 1024)} maximum</div>}
+          {r.maxFiles && <div className={clsx(tooMany && 'text-danger font-semibold')}>{items.length} / {r.maxFiles} fichier(s) maximum</div>}
+          {r.maxSizeMb && <div className={clsx(tooBig && 'text-danger font-semibold')}>{formatBytes(total)} / {formatBytes(r.maxSizeMb * 1024 * 1024)} maximum</div>}
           {r.expiresAt && <div>Lien valable jusqu’au {new Date(r.expiresAt).toLocaleDateString('fr-FR')}</div>}
         </div>
         {busy && <Progress value={overall} className="!h-3" />}

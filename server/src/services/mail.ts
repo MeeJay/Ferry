@@ -1,26 +1,8 @@
 import nodemailer from 'nodemailer';
-import type { MailSettings } from '@ferry/shared';
+import type { MailEventKey, MailSettings } from '@ferry/shared';
 import { getSetting } from './settings.js';
+import { renderEvent, type RenderedMail } from './mailTemplates.js';
 import { logger } from '../logger.js';
-
-export interface MailMessage { to: string; subject: string; title: string; body: string; cta?: { label: string; url: string } }
-
-function escapeHtml(s: string) {
-  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-}
-
-async function render(m: MailMessage): Promise<string> {
-  const b = await getSetting('branding');
-  const accent = /^#[0-9a-f]{6}$/i.test(b.accent) ? b.accent : '#FF5A1F';
-  return `<!doctype html><html><body style="margin:0;background:#f4f4f0;font-family:Inter,Segoe UI,Arial,sans-serif;color:#0a0a0a">
-<table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 16px"><tr><td align="center">
-<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;background:#fff;border:2px solid #0a0a0a;border-radius:16px">
-<tr><td style="padding:32px 32px 8px;font-size:13px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:${accent}">${escapeHtml(b.name)}</td></tr>
-<tr><td style="padding:0 32px 8px;font-size:28px;font-weight:800;line-height:1.15">${escapeHtml(m.title)}</td></tr>
-<tr><td style="padding:8px 32px 24px;font-size:15px;line-height:1.6;color:#3a3a3a">${m.body}</td></tr>
-${m.cta ? `<tr><td style="padding:0 32px 32px"><a href="${escapeHtml(m.cta.url)}" style="display:inline-block;background:${accent};color:#fff;text-decoration:none;font-weight:800;padding:14px 22px;border-radius:10px">${escapeHtml(m.cta.label)}</a></td></tr>` : ''}
-</table></td></tr></table></body></html>`;
-}
 
 async function graphToken(g: MailSettings['graph']): Promise<string> {
   const res = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(g.tenantId)}/oauth2/v2.0/token`, {
@@ -38,10 +20,10 @@ async function graphToken(g: MailSettings['graph']): Promise<string> {
   return json.access_token;
 }
 
-export async function sendMail(m: MailMessage, settings?: MailSettings): Promise<void> {
+/** Delivers an already-rendered e-mail through the configured provider (SMTP or Microsoft Graph). */
+export async function deliver(to: string, mail: RenderedMail, settings?: MailSettings): Promise<void> {
   const s = settings ?? (await getSetting('mail'));
   if (s.provider === 'none') return;
-  const html = await render(m);
 
   if (s.provider === 'smtp') {
     const transport = nodemailer.createTransport({
@@ -50,7 +32,7 @@ export async function sendMail(m: MailMessage, settings?: MailSettings): Promise
       secure: s.smtp.secure,
       auth: s.smtp.user ? { user: s.smtp.user, pass: s.smtp.pass } : undefined,
     });
-    await transport.sendMail({ from: s.from, to: m.to, subject: m.subject, html });
+    await transport.sendMail({ from: s.from, to, subject: mail.subject, html: mail.html, text: mail.text });
     return;
   }
 
@@ -61,9 +43,9 @@ export async function sendMail(m: MailMessage, settings?: MailSettings): Promise
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       message: {
-        subject: m.subject,
-        body: { contentType: 'HTML', content: html },
-        toRecipients: [{ emailAddress: { address: m.to } }],
+        subject: mail.subject,
+        body: { contentType: 'HTML', content: mail.html },
+        toRecipients: [{ emailAddress: { address: to } }],
       },
       saveToSentItems: false,
     }),
@@ -71,9 +53,18 @@ export async function sendMail(m: MailMessage, settings?: MailSettings): Promise
   if (!res.ok) throw new Error(`Graph sendMail HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
 }
 
-/** Fire-and-forget variant for notifications: never fails the request. */
-export function notify(m: MailMessage) {
-  sendMail(m).catch((err) => logger.warn({ err: err.message, to: m.to }, 'mail notification failed'));
+export async function renderFor(event: MailEventKey, vars: Record<string, string>, baseUrl: string): Promise<RenderedMail> {
+  const [branding, mail] = await Promise.all([getSetting('branding'), getSetting('mail')]);
+  return renderEvent(event, vars, { branding, templates: mail.templates, baseUrl });
 }
 
-export { escapeHtml };
+export async function sendEvent(event: MailEventKey, to: string, vars: Record<string, string>, baseUrl: string): Promise<void> {
+  await deliver(to, await renderFor(event, vars, baseUrl));
+}
+
+/** Fire-and-forget variant for notifications: never fails the request. */
+export function notifyEvent(event: MailEventKey, to: string | string[], vars: Record<string, string>, baseUrl: string) {
+  for (const addr of Array.isArray(to) ? to : [to]) {
+    sendEvent(event, addr, vars, baseUrl).catch((err) => logger.warn({ err: err.message, to: addr, event }, 'mail notification failed'));
+  }
+}

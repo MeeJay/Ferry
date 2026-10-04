@@ -67,8 +67,8 @@ function OptionControl<K extends LinkOptionKey>({ k, value, onChange, disabled }
 
 function Row({ label, locked, children, extra }: { label: string; locked?: ReactNode; children: ReactNode; extra?: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 py-3 border-b-2 border-line-soft last:border-0">
-      <div className="flex items-center gap-2 text-sm font-bold">{label}{locked}</div>
+    <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 py-3 last:border-0">
+      <div className="flex items-center gap-2 text-sm font-semibold">{label}{locked}</div>
       <div className="flex items-center gap-3">{children}{extra}</div>
     </div>
   );
@@ -85,11 +85,11 @@ export function LinkPreview({ options, identity, sample, publicMin = 0 }: { opti
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [options, identity, sample, publicMin, seed]);
   return (
-    <div className="flex items-center gap-2 rounded-xl bg-ink text-bg px-4 h-12 font-mono text-[13px] overflow-hidden">
+    <div className="flex items-center gap-2 rounded-md bg-surface-2 text-ink px-4 h-10 font-mono text-[13px] overflow-hidden">
       <span className="opacity-50 shrink-0">{window.location.host}/</span>
       <span className="truncate">
-        {url.prefix && <><span className="text-accent font-bold">{url.prefix}</span><span className="opacity-50">/</span></>}
-        <span className="font-bold">{url.name}</span>
+        {url.prefix && <><span className="text-accent font-semibold">{url.prefix}</span><span className="opacity-50">/</span></>}
+        <span className="font-semibold">{url.name}</span>
       </span>
       <button className="ml-auto shrink-0 opacity-60 hover:opacity-100" onClick={() => setSeed(seed + 1)} title="Régénérer l’exemple"><RefreshCw className="size-4" /></button>
     </div>
@@ -152,15 +152,15 @@ export function AdminLinkEditor({ source, layer, onChange, inheritable }: {
                 <>
                   {inheritable && (
                     <button onClick={() => setEntry(k, inherited ? { value: effective[k] } : undefined)}
-                      className={clsx('text-[11px] font-extrabold uppercase tracking-wider rounded-md px-2 h-7', inherited ? 'bg-surface-2 text-ink-3' : 'text-ink-3 hover:text-ink')}>
+                      className={clsx('text-[11px] font-bold uppercase tracking-wider rounded px-2 h-7', inherited ? 'bg-surface-2 text-ink-3' : 'text-ink-3 hover:text-ink')}>
                       {inherited ? 'Hérité' : 'Réinitialiser'}
                     </button>
                   )}
                   <button
                     onClick={() => setEntry(k, { locked: !entry?.locked, ...(entry?.value === undefined ? { value: effective[k] } : {}) })}
                     title={entry?.locked ? 'Verrouillé : les utilisateurs ne peuvent pas modifier' : 'Libre : les utilisateurs peuvent personnaliser'}
-                    className={clsx('flex size-8 items-center justify-center rounded-lg border-2 transition',
-                      entry?.locked ? 'bg-ink text-bg border-ink' : 'border-line-soft text-ink-3 hover:text-ink')}>
+                    className={clsx('flex size-8 items-center justify-center rounded-md transition',
+                      entry?.locked ? 'bg-grad text-white' : 'bg-surface-2 text-ink-3 hover:text-ink')}>
                     {entry?.locked ? <Lock className="size-3.5" /> : <Unlock className="size-3.5" />}
                   </button>
                 </>

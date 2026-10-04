@@ -27,8 +27,11 @@ export interface LimitSettings {
   allowNeverExpire: boolean;
   allowPublic: boolean;
   defaultVisibility: Visibility;
+  sharexEnabled: boolean;     // default for users without a profile override
   sharexExpiryHours: number;  // 0 = never
   sharexVisibility: Visibility;
+  /** Extra hostnames (pointing to this instance) ShareX configs may return links on. */
+  sharexDomains: string[];
   requestMaxExpiryHours: number;
 }
 
@@ -48,11 +51,28 @@ export interface AuthSettings {
   oidc: OidcSettings;
 }
 
+export type MailTheme = 'signal' | 'minimal' | 'corporate' | 'sunset';
+export const MAIL_THEMES: MailTheme[] = ['signal', 'minimal', 'corporate', 'sunset'];
+
+export type MailEventKey = 'share_invite' | 'request_invite' | 'request_received' | 'share_downloaded';
+export const MAIL_EVENTS: MailEventKey[] = ['share_invite', 'request_invite', 'request_received', 'share_downloaded'];
+
+/** Editable copy of one e-mail. Supports {{variables}}; the body keeps line breaks. */
+export interface MailEventTemplate { subject: string; heading: string; body: string; button: string }
+
+export interface MailTemplateSettings {
+  theme: MailTheme;
+  showLogo: boolean;
+  footer: string;
+  events: Record<MailEventKey, MailEventTemplate>;
+}
+
 export interface MailSettings {
   provider: 'none' | 'smtp' | 'graph';
   from: string;
   smtp: { host: string; port: number; secure: boolean; user: string; pass: string };
   graph: { tenantId: string; clientId: string; clientSecret: string; sender: string };
+  templates: MailTemplateSettings;
 }
 
 export interface StorageSettings {
@@ -92,6 +112,7 @@ export interface QuotaProfile {
   maxExpiryHours: number | null;
   allowNeverExpire: boolean | null;
   allowPublic: boolean | null;
+  sharexEnabled: boolean | null;
   linkPolicy: PolicyLayer;
   oidcGroups: string[];
   isDefault: boolean;
@@ -108,6 +129,8 @@ export interface EffectiveLimits {
   allowNeverExpire: boolean;
   allowPublic: boolean;
   defaultVisibility: Visibility;
+  sharexEnabled: boolean;
+  sharexDomains: string[];
 }
 
 // ── API DTOs ─────────────────────────────────────────────────────────────────
@@ -116,6 +139,8 @@ export interface PublicConfig {
   branding: BrandingSettings;
   localLogin: boolean;
   oidc: { enabled: boolean; buttonLabel: string };
+  /** A mail provider is configured: links can be sent by e-mail. */
+  mailEnabled: boolean;
   version: string;
 }
 
@@ -197,6 +222,8 @@ export interface CreateShareInput {
   maxDownloads?: number | null;
   notifyOnDownload?: boolean;
   linkOverride?: Partial<LinkOptions> | null;
+  /** E-mail addresses that receive the link once the share is ready. */
+  recipients?: string[];
 }
 
 /** Answer of GET /api/public/resolve — tells the SPA what lives at a path. */

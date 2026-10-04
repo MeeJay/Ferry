@@ -47,12 +47,12 @@ export function ShareCard({ share, onChanged, showOwner }: { share: ShareDTO; on
   return (
     <div className={clsx('card flex items-stretch overflow-hidden transition hover:-translate-y-0.5', !live && 'opacity-70')}>
       <FileThumb mime={first?.mime ?? ''} name={first?.name ?? ''} thumb={thumb} kind={share.kind === 'url' ? 'url' : undefined}
-        className="w-20 sm:w-28 shrink-0 border-r-2 border-line" />
+        className="w-20 sm:w-28 shrink-0" />
       <div className="min-w-0 flex-1 p-4">
         <div className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="truncate font-display text-lg font-extrabold">{shareName(share)}</span>
+              <span className="truncate text-[15px] font-semibold">{shareName(share)}</span>
               <StatusBadge s={share} /><SourceBadge s={share} />
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-ink-3">
@@ -72,7 +72,7 @@ export function ShareCard({ share, onChanged, showOwner }: { share: ShareDTO; on
           </div>
         </div>
         {live && share.url && (
-          <button onClick={() => copyText(absolute(share.url))} className="mt-3 max-w-full truncate rounded-lg bg-surface-2 px-2.5 h-8 font-mono text-[12px] text-ink-2 hover:text-ink hover:bg-ink/10 transition" title="Copier le lien">
+          <button onClick={() => copyText(absolute(share.url))} className="mt-3 max-w-full truncate rounded-md bg-surface-2 px-2.5 h-8 font-mono text-[12px] text-ink-2 hover:text-ink hover:bg-ink/10 transition" title="Copier le lien">
             {window.location.host}{share.url}
           </button>
         )}

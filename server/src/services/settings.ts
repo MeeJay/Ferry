@@ -3,13 +3,14 @@ import {
   type SettingsKey, type SettingsMap,
 } from '@ferry/shared';
 import { db } from '../db/knex.js';
+import { DEFAULT_MAIL_TEMPLATES } from './mailTemplates.js';
 
 export const DEFAULT_SETTINGS: SettingsMap = {
   branding: {
     name: 'Ferry',
     tagline: 'Partage de fichiers',
     welcome: 'Déposez vos fichiers, on s’occupe du reste.',
-    accent: '#FF5A1F',
+    accent: '#2563EB',
     footer: '',
     logoLight: null,
     logoDark: null,
@@ -24,8 +25,10 @@ export const DEFAULT_SETTINGS: SettingsMap = {
     allowNeverExpire: false,
     allowPublic: true,
     defaultVisibility: 'private',
+    sharexEnabled: true,
     sharexExpiryHours: 0,
     sharexVisibility: 'public',
+    sharexDomains: [],
     requestMaxExpiryHours: 720,
   },
   auth: {
@@ -46,6 +49,7 @@ export const DEFAULT_SETTINGS: SettingsMap = {
     from: '',
     smtp: { host: '', port: 587, secure: false, user: '', pass: '' },
     graph: { tenantId: '', clientId: '', clientSecret: '', sender: '' },
+    templates: DEFAULT_MAIL_TEMPLATES,
   },
   storage: {
     driver: 'local',

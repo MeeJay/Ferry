@@ -6,7 +6,7 @@ import { LINK_SOURCES, type LinkSource, type Me, type UserLinkPrefs } from '@fer
 import { api, errorMessage } from '@/api/client';
 import { useApp } from '@/store/app';
 import { dateTime, formatBytes, relative } from '@/lib/format';
-import { Badge, Button, Confirm, CopyLink, Empty, Field, IconButton, Input, Modal, SectionTitle, Segmented, Toggle, copyText } from '@/components/ui';
+import { Badge, Button, Confirm, CopyLink, Empty, Field, IconButton, Input, Modal, SectionTitle, Segmented, Select, Toggle } from '@/components/ui';
 import { SOURCE_LABELS, UserLinkEditor } from '@/components/LinkPolicy';
 
 type Tab = 'profile' | 'links' | 'sharex' | 'security';
@@ -27,7 +27,7 @@ export default function SettingsPage() {
         <nav className="flex lg:flex-col gap-1 overflow-x-auto">
           {tabs.map((t) => (
             <button key={t.id} onClick={() => setTab(t.id)}
-              className={clsx('flex items-center gap-2.5 rounded-xl px-3.5 h-11 text-sm font-bold whitespace-nowrap transition', tab === t.id ? 'bg-ink text-bg' : 'text-ink-2 hover:bg-ink/5 hover:text-ink')}>
+              className={clsx('flex items-center gap-2.5 rounded-md px-3.5 h-9 text-sm font-semibold whitespace-nowrap transition', tab === t.id ? 'bg-grad text-white' : 'text-ink-2 hover:bg-ink/5 hover:text-ink')}>
               <t.icon className="size-4" />{t.label}
             </button>
           ))}
@@ -46,9 +46,9 @@ export default function SettingsPage() {
 function Panel({ title, children, footer }: { title: string; children: React.ReactNode; footer?: React.ReactNode }) {
   return (
     <section className="card">
-      <div className="px-6 pt-5"><h2 className="text-2xl font-extrabold">{title}</h2></div>
-      <div className="px-6 py-5">{children}</div>
-      {footer && <div className="flex justify-end gap-2 border-t-2 border-line-soft px-6 py-4">{footer}</div>}
+      <div className="px-5 pt-5"><h2 className="text-lg font-bold">{title}</h2></div>
+      <div className="px-5 py-5">{children}</div>
+      {footer && <div className="flex justify-end gap-2 px-5 py-4">{footer}</div>}
     </section>
   );
 }
@@ -97,7 +97,7 @@ function ProfileTab({ me }: { me: Me }) {
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
-  return <div><dt className="label">{label}</dt><dd className="mt-1 font-display text-xl font-extrabold">{value}</dd></div>;
+  return <div><dt className="label">{label}</dt><dd className="mt-1 font-display text-base font-bold">{value}</dd></div>;
 }
 
 function LinksTab({ me }: { me: Me }) {
@@ -129,30 +129,180 @@ function LinksTab({ me }: { me: Me }) {
 
 interface Token { id: string; name: string; hint: string; createdAt: string; lastUsedAt: string | null; token?: string }
 
-function sxcu(token: string, kind: 'uploader' | 'shortener', direct: boolean) {
+type Destination = 'all' | 'files' | 'images' | 'text' | 'shortener';
+type NameFormat = '' | 'original' | 'random' | 'original_random' | 'words' | 'timestamp' | 'uuid';
+
+interface GeneratorOptions {
+  destination: Destination;
+  nameFormat: NameFormat;
+  quality: string;
+  maxViews: string;
+  expires: string;
+  visibility: '' | 'public' | 'private';
+  domain: string;
+  direct: boolean;
+  xshare: boolean;
+  tokenName: string;
+}
+
+const DESTINATIONS: Record<Destination, { label: string; hint: string; sharex: string }> = {
+  all: { label: 'Tout envoyer', hint: 'Images, texte et fichiers', sharex: 'ImageUploader, TextUploader, FileUploader' },
+  files: { label: 'Fichiers', hint: 'Uploader de fichiers uniquement', sharex: 'FileUploader' },
+  images: { label: 'Images', hint: 'Captures d’écran uniquement', sharex: 'ImageUploader' },
+  text: { label: 'Texte', hint: 'Texte envoyé comme fichier .txt', sharex: 'TextUploader' },
+  shortener: { label: 'Raccourcisseur d’URL', hint: 'Liens courts sur votre domaine', sharex: 'URLShortener' },
+};
+
+const NAME_FORMATS: { value: NameFormat; label: string }[] = [
+  { value: '', label: 'Par défaut (format ShareX de mon profil)' },
+  { value: 'random', label: 'Aléatoire' },
+  { value: 'original', label: 'Nom d’origine' },
+  { value: 'original_random', label: 'Nom d’origine + aléatoire' },
+  { value: 'words', label: 'Mots aléatoires' },
+  { value: 'timestamp', label: 'Horodatage' },
+  { value: 'uuid', label: 'UUID' },
+];
+
+/** Builds a ShareX custom uploader (.sxcu); Xshare (Android) uses the legacy $json:…$ syntax. */
+function buildConfig(token: string, o: GeneratorOptions): { name: string; json: string } {
+  const host = window.location.host;
   const origin = window.location.origin;
-  const name = `${useApp.getState().config?.branding.name ?? 'Ferry'} (${window.location.host})`;
-  const base = { Version: '16.0.0', Name: kind === 'shortener' ? `${name} — liens` : name, RequestMethod: 'POST', Headers: { Authorization: `Bearer ${token}` }, ErrorMessage: '{json:error}' };
-  const cfg = kind === 'uploader'
-    ? { ...base, DestinationType: 'ImageUploader, TextUploader, FileUploader', RequestURL: `${origin}/api/sharex/upload`, Body: 'MultipartFormData', FileFormName: 'file', URL: direct ? '{json:raw_url}' : '{json:url}', ThumbnailURL: '{json:thumbnail_url}', DeletionURL: '{json:deletion_url}' }
-    : { ...base, DestinationType: 'URLShortener', RequestURL: `${origin}/api/sharex/shorten`, Body: 'JSON', Data: '{"url":"{input}"}', URL: '{json:url}', DeletionURL: '{json:deletion_url}' };
-  const blob = new Blob([JSON.stringify(cfg, null, 2)], { type: 'application/json' });
+  const brand = useApp.getState().config?.branding.name ?? 'Ferry';
+  const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+  if (o.nameFormat) headers['X-Ferry-Name-Format'] = o.nameFormat;
+  if (o.quality) headers['X-Ferry-Image-Quality'] = o.quality;
+  if (o.maxViews) headers['X-Ferry-Max-Views'] = o.maxViews;
+  if (o.expires) headers['X-Ferry-Expires'] = o.expires;
+  if (o.visibility) headers['X-Ferry-Visibility'] = o.visibility;
+  if (o.domain) headers['X-Ferry-Domain'] = o.domain;
+  const label = `${brand} (${o.domain || host})${o.destination === 'all' ? '' : ` — ${DESTINATIONS[o.destination].label}`}`;
+  const base = { Version: '16.0.0', Name: label, DestinationType: DESTINATIONS[o.destination].sharex, RequestMethod: 'POST', Headers: headers, ErrorMessage: '{json:error}' };
+  const cfg = o.destination === 'shortener'
+    ? { ...base, RequestURL: `${origin}/api/sharex/shorten`, Body: 'JSON', Data: '{"url":"{input}"}', URL: '{json:url}', DeletionURL: '{json:deletion_url}' }
+    : { ...base, RequestURL: `${origin}/api/sharex/upload`, Body: 'MultipartFormData', FileFormName: 'file', URL: o.direct ? '{json:raw_url}' : '{json:url}', ThumbnailURL: '{json:thumbnail_url}', DeletionURL: '{json:deletion_url}' };
+  let json = JSON.stringify(cfg, null, 2);
+  if (o.xshare) json = json.replace(/\{json:([^}]+)\}/g, '$$json:$1$$').replace(/\{input\}/g, '$$input$$');
+  return { name: `${(o.domain || host).replace(/[:]/g, '-')}-${o.destination}${o.xshare ? '-xshare' : ''}.sxcu`, json };
+}
+
+function download(name: string, content: string) {
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `${window.location.host}${kind === 'shortener' ? '-links' : ''}.sxcu`;
+  a.href = URL.createObjectURL(new Blob([content], { type: 'application/json' }));
+  a.download = name;
   a.click();
   URL.revokeObjectURL(a.href);
 }
 
+function GeneratorModal({ me, onClose, onCreated }: { me: Me; onClose: () => void; onCreated: () => void }) {
+  const today = new Date().toLocaleDateString('fr-FR');
+  const [o, setO] = useState<GeneratorOptions>({
+    destination: 'all', nameFormat: '', quality: '', maxViews: '', expires: '', visibility: '', domain: '', direct: false, xshare: false,
+    tokenName: `ShareX — ${today}`,
+  });
+  const [busy, setBusy] = useState(false);
+  const set = <K extends keyof GeneratorOptions>(k: K, v: GeneratorOptions[K]) => setO({ ...o, [k]: v });
+  const nameLocked = me.linkPolicies.sharex.locked.nameMode;
+  const isUpload = o.destination !== 'shortener';
+  const l = me.limits;
+  const expiryOptions = [
+    { v: '', label: 'Par défaut' }, { v: '1', label: '1 heure' }, { v: '24', label: '1 jour' }, { v: '168', label: '7 jours' },
+    { v: '720', label: '30 jours' }, ...(l.allowNeverExpire ? [{ v: '0', label: 'Jamais' }] : []),
+  ].filter((e) => !e.v || e.v === '0' || !l.maxExpiryHours || Number(e.v) <= l.maxExpiryHours);
+
+  async function generate() {
+    setBusy(true);
+    try {
+      const t = await api.post<Token>('/api/me/tokens', { name: o.tokenName || 'ShareX' });
+      const { name, json } = buildConfig(t.token!, o);
+      download(name, json);
+      toast.success('Configuration téléchargée');
+      onCreated();
+      onClose();
+    } catch (err) { toast.error(errorMessage(err)); } finally { setBusy(false); }
+  }
+
+  const Desc = ({ children }: { children: React.ReactNode }) => <p className="mb-1.5 text-xs text-ink-3">{children}</p>;
+  return (
+    <Modal open onClose={onClose} title="Générer une config ShareX" width="max-w-xl"
+      footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button variant="accent" loading={busy} icon={<Download className="size-4" />} onClick={generate}>Télécharger</Button></>}>
+      <div className="space-y-5">
+        <Field label="Type de destination">
+          <Desc>Ce que ShareX enverra avec cette configuration.</Desc>
+          <Select value={o.destination} onChange={(e) => set('destination', e.target.value as Destination)}>
+            {(Object.keys(DESTINATIONS) as Destination[]).map((d) => <option key={d} value={d}>{DESTINATIONS[d].label} — {DESTINATIONS[d].hint}</option>)}
+          </Select>
+        </Field>
+        <Field label="Format du nom" locked={nameLocked}>
+          <Desc>Nom utilisé dans le lien ({`${window.location.host}/préfixe/nom`}).{nameLocked && ' Imposé par l’administrateur.'}</Desc>
+          <Select value={o.nameFormat} disabled={nameLocked} onChange={(e) => set('nameFormat', e.target.value as NameFormat)}>
+            {NAME_FORMATS.map((n) => <option key={n.value} value={n.value}>{n.label}</option>)}
+          </Select>
+        </Field>
+        {isUpload && (
+          <div className="grid gap-5 sm:grid-cols-2">
+            <Field label="Compression">
+              <Desc>Qualité 1–100 pour les images JPEG, WebP et PNG. Vide = aucune.</Desc>
+              <div className="relative"><Input type="number" min={1} max={100} value={o.quality} onChange={(e) => set('quality', e.target.value)} placeholder="—" className="!pr-8" /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-ink-3">%</span></div>
+            </Field>
+            <Field label="Vues max">
+              <Desc>Le fichier disparaît après ce nombre de téléchargements. Vide = illimité.</Desc>
+              <Input type="number" min={1} value={o.maxViews} onChange={(e) => set('maxViews', e.target.value)} placeholder="Illimité" />
+            </Field>
+          </div>
+        )}
+        <div className="grid gap-5 sm:grid-cols-2">
+          <Field label="Expiration">
+            <Desc>Bornée par vos limites.</Desc>
+            <Select value={o.expires} onChange={(e) => set('expires', e.target.value)}>{expiryOptions.map((e) => <option key={e.v} value={e.v}>{e.label}</option>)}</Select>
+          </Field>
+          <Field label="Visibilité">
+            <Desc>Privé = lien réservé aux comptes.</Desc>
+            <Select value={o.visibility} onChange={(e) => set('visibility', e.target.value as GeneratorOptions['visibility'])}>
+              <option value="">Par défaut</option>
+              {l.allowPublic && <option value="public">Public</option>}
+              <option value="private">Privé</option>
+            </Select>
+          </Field>
+        </div>
+        <Field label="Domaine">
+          <Desc>Domaine utilisé dans les liens renvoyés à ShareX.</Desc>
+          <Select value={o.domain} onChange={(e) => set('domain', e.target.value)} disabled={!l.sharexDomains.length}>
+            <option value="">Domaine par défaut ({window.location.host})</option>
+            {l.sharexDomains.map((d) => <option key={d} value={d}>{d}</option>)}
+          </Select>
+        </Field>
+        <div>
+          <div className="label mb-3">Autres options</div>
+          <div className="space-y-4">
+            {isUpload && <Toggle checked={o.direct} onChange={(v) => set('direct', v)} label="Copier le lien direct du fichier" description="Sinon ShareX copie le lien vers la page d’aperçu (avec vignette dans Teams, Slack, Discord)." />}
+            <Toggle checked={o.xshare} onChange={(v) => set('xshare', v)} label="Compatibilité Xshare" description="Pour l’application Xshare sur Android. La config générée ne fonctionnera pas avec ShareX." />
+          </div>
+        </div>
+        <Field label="Nom du jeton" hint="Un nouveau jeton API est créé et intégré à la configuration. Il est révocable dans la liste ci-dessous.">
+          <Input value={o.tokenName} onChange={(e) => set('tokenName', e.target.value)} />
+        </Field>
+      </div>
+    </Modal>
+  );
+}
+
 function ShareXTab({ me }: { me: Me }) {
   const [tokens, setTokens] = useState<Token[]>([]);
+  const [generator, setGenerator] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [name, setName] = useState('ShareX');
+  const [name, setName] = useState('Script');
   const [fresh, setFresh] = useState<Token | null>(null);
-  const [direct, setDirect] = useState(false);
   const [revoke, setRevoke] = useState<Token | null>(null);
   const load = () => { api.get<Token[]>('/api/me/tokens').then(setTokens).catch(() => {}); };
   useEffect(load, []);
+
+  if (!me.limits.sharexEnabled) {
+    return (
+      <Empty icon={<Terminal className="size-6" />} title="ShareX n’est pas activé">
+        L’envoi via ShareX et l’API n’est pas ouvert pour votre profil. Contactez votre administrateur.
+      </Empty>
+    );
+  }
 
   async function create() {
     try {
@@ -161,54 +311,50 @@ function ShareXTab({ me }: { me: Me }) {
     } catch (err) { toast.error(errorMessage(err)); }
   }
 
-  const sx = me.linkPolicies.sharex.options;
   return (
     <div className="space-y-6">
-      <Panel title="ShareX" footer={<Button variant="accent" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>Nouveau jeton</Button>}>
-        <p className="text-sm text-ink-2">
-          Créez un jeton puis téléchargez la configuration <span className="kbd">.sxcu</span> : double-cliquez dessus et ShareX l’importe directement.
-          Les captures utilisent le format de lien « ShareX » (actuellement : préfixe <b>{sx.prefixMode}</b>, nom <b>{sx.nameMode}</b>).
-        </p>
-        <div className="mt-5">
-          {tokens.length === 0 ? <Empty icon={<KeyRound className="size-6" />} title="Aucun jeton">Un jeton par appareil, révocable à tout moment.</Empty> : (
-            <ul className="divide-y-2 divide-line-soft">
-              {tokens.map((t) => (
-                <li key={t.id} className="flex items-center gap-4 py-3">
-                  <div className="flex size-10 items-center justify-center rounded-xl bg-surface-2"><KeyRound className="size-4" /></div>
-                  <div className="min-w-0 flex-1">
-                    <div className="font-bold">{t.name}</div>
-                    <div className="text-xs text-ink-3"><span className="font-mono">{t.hint}</span> · créé le {dateTime(t.createdAt)} · {t.lastUsedAt ? `utilisé ${relative(t.lastUsedAt)}` : 'jamais utilisé'}</div>
-                  </div>
-                  <IconButton label="Révoquer" className="hover:!text-danger" onClick={() => setRevoke(t)}><Trash2 className="size-4" /></IconButton>
-                </li>
-              ))}
-            </ul>
-          )}
+      <Panel title="ShareX">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <p className="max-w-lg text-sm text-ink-2">
+            Générez une configuration <span className="kbd">.sxcu</span> : double-cliquez dessus et ShareX l’importe. Compatible avec Xshare sur Android.
+          </p>
+          <Button variant="accent" icon={<Download className="size-4" />} onClick={() => setGenerator(true)}>Générer une config</Button>
         </div>
       </Panel>
+      <Panel title="Jetons API" footer={<Button icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>Jeton manuel</Button>}>
+        {tokens.length === 0 ? <Empty icon={<KeyRound className="size-6" />} title="Aucun jeton">Chaque configuration générée crée son propre jeton, révocable à tout moment.</Empty> : (
+          <ul className="divide-y divide-line-soft">
+            {tokens.map((t) => (
+              <li key={t.id} className="flex items-center gap-4 py-3">
+                <div className="flex size-9 items-center justify-center rounded-md bg-surface-2"><KeyRound className="size-4" /></div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold">{t.name}</div>
+                  <div className="text-xs text-ink-3"><span className="font-mono">{t.hint}</span> · créé le {dateTime(t.createdAt)} · {t.lastUsedAt ? `utilisé ${relative(t.lastUsedAt)}` : 'jamais utilisé'}</div>
+                </div>
+                <IconButton label="Révoquer" className="hover:!text-danger" onClick={() => setRevoke(t)}><Trash2 className="size-4" /></IconButton>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Panel>
       <Panel title="API">
-        <p className="mb-3 text-sm text-ink-2">Compatible curl, Flameshot ou tout script :</p>
-        <pre className="overflow-x-auto rounded-xl bg-ink p-4 font-mono text-[12px] text-bg scroll-thin">{`curl -H "Authorization: Bearer <jeton>" \\
+        <p className="mb-3 text-sm text-ink-2">Compatible curl, Flameshot ou tout script. Les en-têtes <span className="kbd">X-Ferry-*</span> du générateur sont aussi acceptés.</p>
+        <pre className="overflow-x-auto rounded-md bg-surface-2 p-4 font-mono text-[12px] text-ink scroll-thin">{`curl -H "Authorization: Bearer <jeton>" \\
+     -H "X-Ferry-Expires: 24" \\
      -F "file=@capture.png" \\
      ${window.location.origin}/api/sharex/upload`}</pre>
       </Panel>
 
+      {generator && <GeneratorModal me={me} onClose={() => setGenerator(false)} onCreated={load} />}
       <Modal open={creating} onClose={() => setCreating(false)} title="Nouveau jeton"
         footer={<><Button variant="ghost" onClick={() => setCreating(false)}>Annuler</Button><Button variant="accent" disabled={!name.trim()} onClick={create}>Créer</Button></>}>
-        <Field label="Nom" hint="Ex. le nom du PC"><Input autoFocus value={name} onChange={(e) => setName(e.target.value)} /></Field>
+        <Field label="Nom" hint="Ex. le nom du script ou du poste"><Input autoFocus value={name} onChange={(e) => setName(e.target.value)} /></Field>
       </Modal>
-
-      <Modal open={!!fresh} onClose={() => setFresh(null)} title="Jeton créé" width="max-w-xl">
+      <Modal open={!!fresh} onClose={() => setFresh(null)} title="Jeton créé">
         {fresh?.token && (
-          <div className="space-y-5">
-            <p className="text-sm text-ink-2">Ce jeton ne sera plus affiché. Téléchargez la configuration maintenant ou copiez-le.</p>
+          <div className="space-y-4">
+            <p className="text-sm text-ink-2">Ce jeton ne sera plus affiché : copiez-le maintenant.</p>
             <CopyLink url={fresh.token} />
-            <Toggle checked={direct} onChange={setDirect} label="Copier le lien direct du fichier" description="Sinon, ShareX copie le lien vers la page d’aperçu." />
-            <div className="flex flex-wrap gap-2">
-              <Button variant="accent" icon={<Download className="size-4" />} onClick={() => sxcu(fresh.token!, 'uploader', direct)}>Uploader (.sxcu)</Button>
-              <Button icon={<Download className="size-4" />} onClick={() => sxcu(fresh.token!, 'shortener', direct)}>Raccourcisseur (.sxcu)</Button>
-              <Button variant="ghost" onClick={() => copyText(fresh.token!, 'Jeton copié')}>Copier le jeton</Button>
-            </div>
           </div>
         )}
       </Modal>

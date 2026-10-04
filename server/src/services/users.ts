@@ -35,6 +35,7 @@ export interface ProfileRow {
   max_expiry_hours: number | null;
   allow_never_expire: boolean | null;
   allow_public: boolean | null;
+  sharex_enabled: boolean | null;
   link_policy: PolicyLayer;
   oidc_groups: string[];
   is_default: boolean;
@@ -74,6 +75,8 @@ export async function effectiveLimits(user: UserRow): Promise<EffectiveLimits> {
     allowNeverExpire: pick(p?.allow_never_expire, g.allowNeverExpire),
     allowPublic: pick(p?.allow_public, g.allowPublic),
     defaultVisibility: g.defaultVisibility,
+    sharexEnabled: pick(p?.sharex_enabled, g.sharexEnabled),
+    sharexDomains: g.sharexDomains,
   };
 }
 

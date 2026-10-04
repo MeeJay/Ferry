@@ -39,30 +39,30 @@ export function DropZone({ onFiles, children, compact, className }: {
         type="button"
         onClick={() => input.current?.click()}
         className={clsx(
-          'group relative w-full rounded-[28px] border-[3px] border-dashed transition-colors text-left',
-          over ? 'border-accent bg-accent/10' : 'border-line hover:border-accent hover:bg-accent/[.04]',
-          compact ? 'px-6 py-6' : 'px-6 py-16 sm:py-24',
+          'group relative w-full rounded-lg border-2 border-dashed transition-colors text-left',
+          over ? 'border-accent bg-grad-soft' : 'border-line bg-surface/40 hover:bg-surface-3 hover:bg-grad-soft',
+          compact ? 'px-5 py-6' : 'px-5 py-12 sm:py-16',
           className,
         )}
       >
         {children ?? (
           <div className="flex flex-col items-center text-center">
-            <span className={clsx('flex items-center justify-center rounded-[30%] bg-accent text-accent-ink transition-transform group-hover:-translate-y-1', compact ? 'size-12' : 'size-20')}>
+            <span className={clsx('flex items-center justify-center rounded-lg bg-grad text-white glow transition-transform group-hover:-translate-y-1', compact ? 'size-12' : 'size-20')}>
               <ArrowUp className={compact ? 'size-6' : 'size-10'} strokeWidth={2.75} />
             </span>
-            <span className={clsx('mt-6 font-display font-extrabold tracking-tight', compact ? 'text-xl' : 'text-3xl sm:text-4xl')}>
+            <span className={clsx('mt-6 font-display font-bold tracking-tight', compact ? 'text-base' : 'text-xl sm:text-2xl')}>
               Glissez vos fichiers ici
             </span>
-            <span className="mt-2 text-ink-2">ou <span className="font-bold text-ink underline decoration-accent decoration-[3px] underline-offset-4">parcourez votre ordinateur</span></span>
+            <span className="mt-2 text-ink-2">ou <span className="font-semibold text-ink underline decoration-accent decoration-[3px] underline-offset-4">parcourez votre ordinateur</span></span>
           </div>
         )}
       </button>
       <input ref={input} type="file" multiple hidden onChange={(e) => { const f = Array.from(e.target.files ?? []); if (f.length) onFiles(f); e.target.value = ''; }} />
       {over && (
-        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-accent/90 text-accent-ink animate-[fade-up_120ms_ease-out]">
+        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-grad text-white animate-[fade-up_120ms_ease-out]">
           <div className="text-center">
             <ArrowUp className="mx-auto size-24" strokeWidth={2.5} />
-            <div className="mt-4 font-display text-5xl font-extrabold">Lâchez pour ajouter</div>
+            <div className="mt-4 font-display text-3xl font-bold">Lâchez pour ajouter</div>
           </div>
         </div>
       )}

@@ -30,3 +30,7 @@ export const shareOptionsSchema = z.object({
 });
 
 export const uuid = z.string().uuid();
+
+/** Addresses a share / drop link is e-mailed to (deduplicated, max 50). */
+export const recipientsSchema = z.array(z.string().trim().toLowerCase().email()).max(50).default([])
+  .transform((a) => [...new Set(a)]);

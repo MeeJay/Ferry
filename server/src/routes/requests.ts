@@ -9,8 +9,9 @@ import { HttpError } from '../services/shares.js';
 import { hashPassword } from '../services/users.js';
 import { getSetting } from '../services/settings.js';
 import { audit } from '../services/audit.js';
-import { ah } from '../utils/http.js';
-import { partialLinkOptions, uuid } from '../utils/schemas.js';
+import { notifyEvent } from '../services/mail.js';
+import { absoluteUrl, ah, baseUrl } from '../utils/http.js';
+import { partialLinkOptions, recipientsSchema, uuid } from '../utils/schemas.js';
 
 export interface RequestRow {
   id: string;
@@ -66,6 +67,7 @@ const body = z.object({
   notify: z.boolean().optional(),
   active: z.boolean().optional(),
   linkOverride: partialLinkOptions.nullish(),
+  recipients: recipientsSchema.optional(),
 });
 
 async function expiryFor(hours: number | null | undefined): Promise<Date | null> {
@@ -111,6 +113,15 @@ requestsRouter.post('/', ah(async (req, res) => {
     return r;
   });
   audit(req, 'request.created', row.id, { title: row.title });
+  if (b.recipients?.length) {
+    notifyEvent('request_invite', b.recipients, {
+      sender: req.user!.display_name,
+      title: row.title,
+      message: row.message ?? '',
+      expires: row.expires_at ? new Date(row.expires_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : '',
+      link: absoluteUrl(req, linkPath(row.prefix, row.slug)),
+    }, baseUrl(req));
+  }
   res.status(201).json(requestDTO(row));
 }));
 

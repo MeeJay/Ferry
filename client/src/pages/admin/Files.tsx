@@ -68,13 +68,13 @@ export default function AdminFiles() {
             const live = s.status === 'ready';
             return (
               <button key={s.id} onClick={() => setSelected(s)} className={clsx('group card overflow-hidden text-left transition hover:-translate-y-0.5', !live && 'opacity-60')}>
-                <div className="relative aspect-square overflow-hidden border-b-2 border-line">
+                <div className="relative aspect-square overflow-hidden">
                   <FileThumb mime={f?.mime ?? ''} name={f?.name ?? ''} thumb={live && f?.hasThumb ? `${f.rawUrl}?thumb` : null} kind={s.kind === 'url' ? 'url' : undefined} className="size-full" />
-                  {s.fileCount > 1 && <span className="absolute right-2 top-2 rounded-md bg-ink px-1.5 py-0.5 text-[11px] font-extrabold text-bg">{s.fileCount}</span>}
+                  {s.fileCount > 1 && <span className="absolute right-2 top-2 rounded bg-grad px-1.5 py-0.5 text-[11px] font-bold text-white">{s.fileCount}</span>}
                   <div className="absolute left-2 top-2 flex gap-1"><StatusBadge s={s} /><SourceBadge s={s} /></div>
                 </div>
                 <div className="p-3">
-                  <div className="truncate text-sm font-bold">{shareName(s)}</div>
+                  <div className="truncate text-sm font-semibold">{shareName(s)}</div>
                   <div className="mt-0.5 flex justify-between text-xs text-ink-3"><span className="truncate">@{s.owner?.username}</span><span>{formatBytes(s.totalSize)}</span></div>
                 </div>
               </button>
@@ -88,7 +88,7 @@ export default function AdminFiles() {
       {data && pages > 1 && (
         <div className="mt-8 flex items-center justify-center gap-3">
           <IconButton label="Précédent" disabled={page <= 1} onClick={() => set('page', String(page - 1))}><ChevronLeft /></IconButton>
-          <span className="text-sm font-bold">{page} / {pages}</span>
+          <span className="text-sm font-semibold">{page} / {pages}</span>
           <IconButton label="Suivant" disabled={page >= pages} onClick={() => set('page', String(page + 1))}><ChevronRight /></IconButton>
         </div>
       )}
@@ -125,16 +125,16 @@ function ShareDetail({ share, onClose, onChanged }: { share: ShareDTO; onClose: 
       </>}>
       <div className="grid gap-6 md:grid-cols-[240px_1fr]">
         <div>
-          <FileThumb mime={first?.mime ?? ''} name={first?.name ?? ''} thumb={live && first?.hasThumb ? `${first.rawUrl}?thumb` : null} kind={share.kind === 'url' ? 'url' : undefined} className="aspect-square w-full rounded-xl border-2 border-line" />
+          <FileThumb mime={first?.mime ?? ''} name={first?.name ?? ''} thumb={live && first?.hasThumb ? `${first.rawUrl}?thumb` : null} kind={share.kind === 'url' ? 'url' : undefined} className="aspect-square w-full rounded-md" />
           <div className="mt-3 flex flex-wrap gap-1"><StatusBadge s={share} /><SourceBadge s={share} />{share.kind === 'url' && <Badge>URL</Badge>}</div>
         </div>
         <div>
-          <dl className="divide-y-2 divide-line-soft text-sm">
-            {rows.map(([k, v]) => <div key={k} className="flex gap-4 py-2"><dt className="w-36 shrink-0 font-bold text-ink-3">{k}</dt><dd className="min-w-0 flex-1">{v}</dd></div>)}
+          <dl className="divide-y divide-line-soft text-sm">
+            {rows.map(([k, v]) => <div key={k} className="flex gap-4 py-2"><dt className="w-36 shrink-0 font-semibold text-ink-3">{k}</dt><dd className="min-w-0 flex-1">{v}</dd></div>)}
           </dl>
           {share.kind === 'url' && <p className="mt-3 break-all text-sm">→ {share.targetUrl}</p>}
           {share.files.length > 0 && (
-            <ul className="mt-4 max-h-60 overflow-y-auto rounded-xl border-2 border-line-soft divide-y-2 divide-line-soft scroll-thin">
+            <ul className="mt-4 max-h-60 overflow-y-auto rounded-md divide-y divide-line-soft scroll-thin">
               {share.files.map((f) => (
                 <li key={f.id} className="flex items-center gap-3 px-3 py-2 text-sm">
                   <span className="min-w-0 flex-1 truncate font-semibold">{f.name}</span>

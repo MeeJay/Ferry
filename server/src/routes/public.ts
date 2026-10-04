@@ -5,13 +5,13 @@ import type { PublicConfig, ResolveResult } from '@ferry/shared';
 import { config } from '../config.js';
 import { db } from '../db/knex.js';
 import { getSetting } from '../services/settings.js';
-import { resolveSegments, linkPath } from '../services/links.js';
+import { resolveSegments } from '../services/links.js';
 import { checkShareAccess, loadShare, markUnlocked } from '../services/access.js';
-import { createPendingShare, finalizeShare, HttpError, shareDTO, type FileRow, type ShareRow } from '../services/shares.js';
+import { createPendingShare, finalizeShare, HttpError, shareDTO, shareMailVars, type FileRow, type ShareRow } from '../services/shares.js';
 import { getUser, verifyPassword } from '../services/users.js';
-import { escapeHtml, notify } from '../services/mail.js';
+import { notifyEvent } from '../services/mail.js';
 import { audit } from '../services/audit.js';
-import { absoluteUrl, ah } from '../utils/http.js';
+import { ah, baseUrl } from '../utils/http.js';
 import { requestOpen, type RequestRow } from './requests.js';
 
 export const publicRouter = Router();
@@ -20,11 +20,12 @@ const unlockLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 30, standardHead
 const dropLimiter = rateLimit({ windowMs: 60 * 60_000, limit: 60, standardHeaders: true, legacyHeaders: false });
 
 publicRouter.get('/config', ah(async (_req, res) => {
-  const [branding, auth] = await Promise.all([getSetting('branding'), getSetting('auth')]);
+  const [branding, auth, mail] = await Promise.all([getSetting('branding'), getSetting('auth'), getSetting('mail')]);
   const out: PublicConfig = {
     branding,
     localLogin: auth.localLogin,
     oidc: { enabled: auth.oidc.enabled && !!auth.oidc.clientId, buttonLabel: auth.oidc.buttonLabel },
+    mailEnabled: mail.provider !== 'none',
     version: config.version,
   };
   res.set('Cache-Control', 'no-cache').json(out);
@@ -132,14 +133,11 @@ publicRouter.post('/requests/:id/session/:shareId/complete', ah(async (req, res)
 
   const owner = await getUser(r.owner_id);
   if (r.notify && owner?.email) {
-    notify({
-      to: owner.email,
-      subject: `Nouveau dépôt : ${r.title}`,
-      title: 'Vous avez reçu des fichiers',
-      body: `<b>${escapeHtml(ready.uploader_name || ready.uploader_email || 'Un expéditeur anonyme')}</b> a déposé `
-        + `${ready.file_count} fichier(s) via votre demande « ${escapeHtml(r.title)} ».`,
-      cta: { label: 'Voir les fichiers', url: absoluteUrl(req, linkPath(ready.prefix, ready.slug)) },
-    });
+    notifyEvent('request_received', owner.email, {
+      ...(await shareMailVars(req, ready)),
+      title: r.title,
+      uploader: ready.uploader_name || ready.uploader_email || 'Un expéditeur anonyme',
+    }, baseUrl(req));
   }
   res.json({ ok: true, files: ready.file_count });
 }));

@@ -10,10 +10,11 @@ export default {
     extend: {
       colors: {
         bg: v('bg'),
-        surface: { DEFAULT: v('surface'), 2: v('surface-2') },
+        surface: { DEFAULT: v('surface'), 2: v('surface-2'), 3: v('surface-3') },
         ink: { DEFAULT: v('ink'), 2: v('ink-2'), 3: v('ink-3') },
         line: { DEFAULT: v('line'), soft: v('line-soft') },
-        accent: { DEFAULT: v('accent'), ink: v('accent-ink') },
+        accent: { DEFAULT: v('accent'), 2: v('accent-2'), ink: v('accent-ink') },
+        warm: { 1: v('warm-1'), 2: v('warm-2') },
         danger: v('danger'),
         success: v('success'),
         warn: v('warn'),

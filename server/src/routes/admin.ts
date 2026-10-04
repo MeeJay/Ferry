@@ -4,17 +4,18 @@ import path from 'node:path';
 import { Router } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
-import type { AdminStats, AdminUser, AuditEntry, Paged, QuotaProfile, SettingsKey } from '@ferry/shared';
+import { MAIL_EVENTS, MAIL_THEMES, type AdminStats, type AdminUser, type AuditEntry, type MailEventKey, type MailTheme, type Paged, type QuotaProfile, type SettingsKey } from '@ferry/shared';
 import { config } from '../config.js';
 import { db } from '../db/knex.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { getSetting, maskSecrets, setSetting } from '../services/settings.js';
 import { HttpError, purgeShare, shareDTO, type FileRow, type ShareRow } from '../services/shares.js';
 import { checkHandle, hashPassword, newUserCode, type ProfileRow, type UserRow } from '../services/users.js';
-import { sendMail } from '../services/mail.js';
+import { deliver, renderFor } from '../services/mail.js';
+import { DEFAULT_MAIL_TEMPLATES, MAIL_VARIABLES, SAMPLE_VARS, renderEvent } from '../services/mailTemplates.js';
 import { testS3 } from '../services/storage.js';
 import { audit } from '../services/audit.js';
-import { ah } from '../utils/http.js';
+import { ah, baseUrl } from '../utils/http.js';
 import { policyLayerSchema, uuid } from '../utils/schemas.js';
 
 export const adminRouter = Router();
@@ -183,7 +184,7 @@ function profileDTO(p: ProfileRow & { user_count?: string | number }): QuotaProf
     id: p.id, name: p.name, description: p.description,
     maxFileSizeMb: p.max_file_size_mb, maxShareSizeMb: p.max_share_size_mb, storageQuotaMb: p.storage_quota_mb,
     defaultExpiryHours: p.default_expiry_hours, maxExpiryHours: p.max_expiry_hours,
-    allowNeverExpire: p.allow_never_expire, allowPublic: p.allow_public,
+    allowNeverExpire: p.allow_never_expire, allowPublic: p.allow_public, sharexEnabled: p.sharex_enabled,
     linkPolicy: p.link_policy ?? {}, oidcGroups: p.oidc_groups ?? [], isDefault: p.is_default,
     userCount: Number(p.user_count ?? 0),
   };
@@ -199,6 +200,7 @@ const profileBody = z.object({
   maxExpiryHours: z.number().int().min(0).nullable().default(null),
   allowNeverExpire: z.boolean().nullable().default(null),
   allowPublic: z.boolean().nullable().default(null),
+  sharexEnabled: z.boolean().nullable().default(null),
   linkPolicy: policyLayerSchema.default({}),
   oidcGroups: z.array(z.string().min(1)).default([]),
   isDefault: z.boolean().default(false),
@@ -208,7 +210,7 @@ function profileRow(b: Partial<z.infer<typeof profileBody>>) {
   const map: Record<string, string> = {
     name: 'name', description: 'description', maxFileSizeMb: 'max_file_size_mb', maxShareSizeMb: 'max_share_size_mb',
     storageQuotaMb: 'storage_quota_mb', defaultExpiryHours: 'default_expiry_hours', maxExpiryHours: 'max_expiry_hours',
-    allowNeverExpire: 'allow_never_expire', allowPublic: 'allow_public', oidcGroups: 'oidc_groups', isDefault: 'is_default',
+    allowNeverExpire: 'allow_never_expire', allowPublic: 'allow_public', sharexEnabled: 'sharex_enabled', oidcGroups: 'oidc_groups', isDefault: 'is_default',
   };
   const row: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(b)) {
@@ -257,6 +259,14 @@ adminRouter.delete('/profiles/:id', ah(async (req, res) => {
 
 // ── Settings ───────────────────────────────────────────────────────────────
 
+const mailEventSchema = z.object({ subject: z.string().max(300), heading: z.string().max(300), body: z.string().max(5000), button: z.string().max(80) });
+const mailTemplatesSchema = z.object({
+  theme: z.enum(MAIL_THEMES as [MailTheme, ...MailTheme[]]),
+  showLogo: z.boolean(),
+  footer: z.string().max(400),
+  events: z.object(Object.fromEntries(MAIL_EVENTS.map((e) => [e, mailEventSchema])) as Record<MailEventKey, typeof mailEventSchema>),
+});
+
 const hex = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Couleur hexadécimale attendue');
 const settingSchemas: Record<SettingsKey, z.ZodTypeAny> = {
   branding: z.object({
@@ -267,7 +277,8 @@ const settingSchemas: Record<SettingsKey, z.ZodTypeAny> = {
     maxFileSizeMb: z.number().int().min(0), maxShareSizeMb: z.number().int().min(0), storageQuotaMb: z.number().int().min(0),
     defaultExpiryHours: z.number().int().min(0), maxExpiryHours: z.number().int().min(0), allowNeverExpire: z.boolean(),
     allowPublic: z.boolean(), defaultVisibility: z.enum(['private', 'public']),
-    sharexExpiryHours: z.number().int().min(0), sharexVisibility: z.enum(['private', 'public']), requestMaxExpiryHours: z.number().int().min(0),
+    sharexEnabled: z.boolean(), sharexExpiryHours: z.number().int().min(0), sharexVisibility: z.enum(['private', 'public']),
+    sharexDomains: z.array(z.string().trim().toLowerCase().regex(/^[a-z0-9.-]+(:d+)?$/, 'Nom d’hôte invalide')).max(20), requestMaxExpiryHours: z.number().int().min(0),
   }),
   auth: z.object({
     localLogin: z.boolean(),
@@ -280,6 +291,7 @@ const settingSchemas: Record<SettingsKey, z.ZodTypeAny> = {
     provider: z.enum(['none', 'smtp', 'graph']), from: z.string().max(200),
     smtp: z.object({ host: z.string(), port: z.number().int().min(1).max(65535), secure: z.boolean(), user: z.string(), pass: z.string() }),
     graph: z.object({ tenantId: z.string(), clientId: z.string(), clientSecret: z.string(), sender: z.string() }),
+    templates: mailTemplatesSchema,
   }),
   storage: z.object({
     driver: z.enum(['local', 's3']),
@@ -316,15 +328,31 @@ adminRouter.put('/settings/:key', ah(async (req, res) => {
   res.json(maskSecrets(key, saved));
 }));
 
+const eventKey = z.enum(MAIL_EVENTS as [MailEventKey, ...MailEventKey[]]);
+
+/** Sends a sample of one event to check delivery and look (uses the saved settings). */
 adminRouter.post('/settings/mail/test', ah(async (req, res) => {
-  const { to } = z.object({ to: z.string().email() }).parse(req.body);
+  const { to, event } = z.object({ to: z.string().email(), event: eventKey.default('share_invite') }).parse(req.body);
   try {
-    await sendMail({ to, subject: 'Test Ferry', title: 'Ça fonctionne !', body: 'La configuration d’envoi de mails est opérationnelle.' });
+    const sample = { ...SAMPLE_VARS, link: `${baseUrl(req)}/`, sender: req.user!.display_name };
+    await deliver(to, await renderFor(event, sample, baseUrl(req)));
   } catch (err: any) {
     throw new HttpError(400, `Échec de l’envoi : ${err.message}`);
   }
   res.json({ ok: true });
 }));
+
+/** Live preview for the template editor: renders unsaved edits with sample data. */
+adminRouter.post('/mail/preview', ah(async (req, res) => {
+  const b = z.object({ event: eventKey, templates: mailTemplatesSchema }).parse(req.body);
+  const branding = await getSetting('branding');
+  const out = renderEvent(b.event, { ...SAMPLE_VARS, sender: req.user!.display_name }, { branding, templates: b.templates, baseUrl: baseUrl(req) });
+  res.json(out);
+}));
+
+adminRouter.get('/mail/meta', (_req, res) => {
+  res.json({ variables: MAIL_VARIABLES, defaults: DEFAULT_MAIL_TEMPLATES });
+});
 
 // ── Branding assets ────────────────────────────────────────────────────────
 
