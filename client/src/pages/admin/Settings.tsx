@@ -3,7 +3,7 @@ import { NavLink, useParams } from 'react-router-dom';
 import clsx from 'clsx';
 import { Copy, ImagePlus, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { LINK_SOURCES, MAIL_EVENTS, MAIL_THEMES, type LinkSource, type MailEventKey, type MailEventTemplate, type MailTemplateSettings, type MailTheme, type PublicConfig, type SettingsMap } from '@ferry/shared';
+import { LINK_SOURCES, MAIL_EVENTS, MAIL_THEMES, type LinkSource, type MailEventKey, type MailEventTemplate, type MailTemplateSettings, type MailTheme, type PublicConfig, type QuotaProfile, type RegistrationMode, type SettingsMap } from '@ferry/shared';
 import { api, errorMessage } from '@/api/client';
 import { useApp } from '@/store/app';
 import { applyAccent } from '@/lib/theme';
@@ -258,6 +258,9 @@ function Auth({ value, onSaved }: { value: SettingsMap['auth']; onSaved: (v: Set
             <Field label="Libellé du bouton"><Input value={o.buttonLabel} onChange={(e) => setO('buttonLabel', e.target.value)} /></Field>
           </div>
           <Toggle checked={o.autoCreate} onChange={(v) => setO('autoCreate', v)} label="Créer les comptes à la première connexion" />
+          <Field label="Profil des nouveaux comptes SSO" hint="Attribué à la création quand aucun groupe Entra ne correspond à un profil (Admin → Profils).">
+            <ProfileSelect value={o.defaultProfileId} onChange={(v) => setO('defaultProfileId', v)} />
+          </Field>
           <div className="grid gap-5 sm:grid-cols-2">
             <Field label="Groupes administrateurs" hint="Object ID, un par ligne. Vide = rôles gérés dans Ferry.">
               <Textarea value={o.adminGroups.join('\n')} onChange={(e) => setO('adminGroups', list(e.target.value))} className="font-mono text-xs" />
@@ -272,7 +275,67 @@ function Auth({ value, onSaved }: { value: SettingsMap['auth']; onSaved: (v: Set
         <Toggle checked={draft.localLogin} onChange={(v) => setDraft({ ...draft, localLogin: v })} label="Autoriser la connexion par identifiant / mot de passe"
           description="Désactivez-la une fois le SSO opérationnel. Vérifiez d’abord qu’un administrateur peut se connecter via Microsoft." />
       </Panel>
+      <Registration value={draft.registration} localLogin={draft.localLogin} onChange={(r) => setDraft({ ...draft, registration: r })} footer={footer} />
     </>
+  );
+}
+
+function ProfileSelect({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) {
+  const [profiles, setProfiles] = useState<QuotaProfile[]>([]);
+  useEffect(() => { api.get<QuotaProfile[]>('/api/admin/profiles').then(setProfiles).catch(() => {}); }, []);
+  const def = profiles.find((p) => p.isDefault);
+  return (
+    <Select value={value ?? ''} onChange={(e) => onChange(e.target.value || null)}>
+      <option value="">{def ? `Profil par défaut (${def.name})` : 'Réglages globaux'}</option>
+      {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+    </Select>
+  );
+}
+
+const REG_MODES: { value: RegistrationMode; label: string; hint: string }[] = [
+  { value: 'disabled', label: 'Désactivée', hint: 'Seuls les administrateurs créent des comptes (directement ou par invitation).' },
+  { value: 'open', label: 'Ouverte', hint: 'Le compte est actif immédiatement.' },
+  { value: 'email', label: 'Validation par e-mail', hint: 'Un lien de confirmation est envoyé à l’adresse saisie.' },
+  { value: 'approval', label: 'Validation par un administrateur', hint: 'Les administrateurs sont prévenus et valident chaque compte.' },
+  { value: 'email_approval', label: 'E-mail puis administrateur', hint: 'Adresse confirmée, puis validation par un administrateur.' },
+];
+
+function Registration({ value, localLogin, onChange, footer }: {
+  value: SettingsMap['auth']['registration']; localLogin: boolean; onChange: (v: SettingsMap['auth']['registration']) => void; footer: ReactNode;
+}) {
+  const mailEnabled = useApp((s) => s.config?.mailEnabled);
+  const needsMail = value.mode !== 'disabled' && value.mode !== 'open';
+  const [domains, setDomains] = useState(value.allowedDomains.join(', '));
+  return (
+    <Panel title="Inscription" footer={footer}
+      description="Lien « Créer un compte » sur la page de connexion. Les invitations envoyées depuis Admin → Utilisateurs fonctionnent même quand l’inscription est désactivée.">
+      <div className="space-y-5">
+        <div className="grid gap-2">
+          {REG_MODES.map((m) => (
+            <button key={m.value} type="button" onClick={() => onChange({ ...value, mode: m.value })}
+              className={clsx('flex items-start gap-3 rounded-md p-3 text-left transition', value.mode === m.value ? 'bg-grad-soft ring-1 ring-accent/50' : 'bg-surface-2 hover:bg-surface-3')}>
+              <span className={clsx('mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full', value.mode === m.value ? 'bg-grad' : 'bg-surface-3')}>
+                {value.mode === m.value && <span className="size-1.5 rounded-full bg-white" />}
+              </span>
+              <span><span className="block text-[13px] font-semibold">{m.label}</span><span className="block text-xs text-ink-3">{m.hint}</span></span>
+            </button>
+          ))}
+        </div>
+        {value.mode !== 'disabled' && !localLogin && <p className="rounded-md bg-warn/15 px-3 py-2 text-xs font-semibold">La connexion locale est désactivée : l’inscription ne sera pas proposée.</p>}
+        {needsMail && !mailEnabled && <p className="rounded-md bg-warn/15 px-3 py-2 text-xs font-semibold">Aucun envoi d’e-mail n’est configuré (Réglages → E-mails) : les messages de validation ne partiront pas.</p>}
+        {value.mode !== 'disabled' && (
+          <div className="grid gap-5 sm:grid-cols-2">
+            <Field label="Domaines autorisés" hint="Séparés par des virgules, ex. agitel.fr. Vide = toute adresse.">
+              <Input value={domains} placeholder="exemple.fr"
+                onChange={(e) => { setDomains(e.target.value); onChange({ ...value, allowedDomains: e.target.value.split(/[\s,;]+/).map((d) => d.trim().toLowerCase().replace(/^@/, '')).filter(Boolean) }); }} />
+            </Field>
+            <Field label="Profil des comptes inscrits" hint="Les invitations ont leur propre profil.">
+              <ProfileSelect value={value.defaultProfileId} onChange={(v) => onChange({ ...value, defaultProfileId: v })} />
+            </Field>
+          </div>
+        )}
+      </div>
+    </Panel>
   );
 }
 
@@ -311,9 +374,10 @@ function Mail({ value, onSaved }: { value: SettingsMap['mail']; onSaved: (v: Set
               </div>
             </>
           )}
+          {draft.provider !== 'none' && <MailTest mail={draft} event="share_invite" title="Tester l’envoi" />}
         </div>
       </Panel>
-      <MailTemplatesEditor value={draft.templates} onChange={(t) => setDraft({ ...draft, templates: t })} footer={footer} canTest={value.provider !== 'none'} />
+      <MailTemplatesEditor value={draft.templates} onChange={(t) => setDraft({ ...draft, templates: t })} footer={footer} mail={draft} />
     </>
   );
 }
@@ -330,19 +394,41 @@ const EVENT_INFO: Record<MailEventKey, { label: string; hint: string }> = {
   request_invite: { label: 'Demande de dépôt', hint: 'Envoyé aux personnes invitées à déposer des fichiers' },
   request_received: { label: 'Dépôt reçu', hint: 'Notifie le demandeur quand des fichiers arrivent' },
   share_downloaded: { label: 'Premier téléchargement', hint: 'Notifie l’auteur d’un partage (si l’option est cochée)' },
+  account_invite: { label: 'Invitation', hint: 'Lien de création de compte envoyé par un administrateur' },
+  account_verify: { label: 'Vérification', hint: 'Confirmation de l’adresse e-mail à l’inscription' },
+  account_pending: { label: 'Compte à valider', hint: 'Envoyé aux administrateurs quand une inscription attend leur validation' },
+  account_approved: { label: 'Compte validé', hint: 'Prévient l’utilisateur que son compte est activé' },
 };
 
 interface MailMeta { variables: Record<MailEventKey, string[]>; defaults: MailTemplateSettings }
 
-function MailTemplatesEditor({ value, onChange, footer, canTest }: {
-  value: MailTemplateSettings; onChange: (t: MailTemplateSettings) => void; footer: ReactNode; canTest: boolean;
-}) {
+/** Sends one sample e-mail with the form values as typed (saved or not). */
+function MailTest({ mail, event, title }: { mail: SettingsMap['mail']; event: MailEventKey; title: string }) {
   const me = useApp((s) => s.me)!;
+  const [to, setTo] = useState(me.email ?? '');
+  const [testing, setTesting] = useState(false);
+  async function test() {
+    setTesting(true);
+    try { await api.post('/api/admin/settings/mail/test', { to, event, settings: mail }); toast.success(`E-mail envoyé à ${to}`); }
+    catch (err) { toast.error(errorMessage(err), { duration: 10000 }); } finally { setTesting(false); }
+  }
+  return (
+    <div className="rounded-md bg-surface-2 p-3">
+      <div className="mb-2 text-[13px] font-semibold">{title} <span className="font-normal text-ink-3">(valeurs saisies, même non enregistrées)</span></div>
+      <div className="flex gap-2">
+        <Input type="email" value={to} onChange={(e) => setTo(e.target.value)} placeholder="destinataire@exemple.fr" />
+        <Button variant="accent" loading={testing} disabled={!to} onClick={test}>Envoyer</Button>
+      </div>
+    </div>
+  );
+}
+
+function MailTemplatesEditor({ value, onChange, footer, mail }: {
+  value: MailTemplateSettings; onChange: (t: MailTemplateSettings) => void; footer: ReactNode; mail: SettingsMap['mail'];
+}) {
   const [event, setEvent] = useState<MailEventKey>('share_invite');
   const [meta, setMeta] = useState<MailMeta | null>(null);
   const [preview, setPreview] = useState<{ subject: string; html: string } | null>(null);
-  const [to, setTo] = useState(me.email ?? '');
-  const [testing, setTesting] = useState(false);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const tpl = value.events[event];
   const setTpl = (patch: Partial<MailEventTemplate>) => onChange({ ...value, events: { ...value.events, [event]: { ...tpl, ...patch } } });
@@ -364,11 +450,6 @@ function MailTemplatesEditor({ value, onChange, footer, canTest }: {
     requestAnimationFrame(() => { el.focus(); el.setSelectionRange(a + token.length, a + token.length); });
   }
 
-  async function test() {
-    setTesting(true);
-    try { await api.post('/api/admin/settings/mail/test', { to, event }); toast.success('Mail envoyé'); }
-    catch (err) { toast.error(errorMessage(err), { duration: 8000 }); } finally { setTesting(false); }
-  }
 
   return (
     <Panel title="Modèles d’e-mails" description="Choisissez un thème et adaptez les textes. HTML compatible Outlook, Gmail et mobile, avec une version texte." footer={footer}>
@@ -413,12 +494,7 @@ function MailTemplatesEditor({ value, onChange, footer, canTest }: {
             )}
             <Field label="Bouton"><Input value={tpl.button} onChange={(e) => setTpl({ button: e.target.value })} /></Field>
             {meta && <Button size="sm" variant="ghost" onClick={() => setTpl(meta.defaults.events[event])}>Rétablir le texte par défaut</Button>}
-            {canTest && (
-              <div className="rounded-md bg-surface-2 p-3">
-                <div className="mb-2 text-[13px] font-semibold">Envoyer cet e-mail en test <span className="font-normal text-ink-3">(réglages enregistrés)</span></div>
-                <div className="flex gap-2"><Input type="email" value={to} onChange={(e) => setTo(e.target.value)} placeholder="destinataire@exemple.fr" /><Button variant="accent" loading={testing} disabled={!to} onClick={test}>Envoyer</Button></div>
-              </div>
-            )}
+            {mail.provider !== 'none' && <MailTest mail={{ ...mail, templates: value }} event={event} title="Envoyer cet e-mail en test" />}
           </div>
           <div>
             <div className="mb-2 flex h-9 items-center gap-2 rounded-md bg-surface-2 px-3 text-[13px]">

@@ -20,6 +20,8 @@ export interface UserRow {
   quota_profile_id: string | null;
   link_prefs: UserLinkPrefs;
   disabled: boolean;
+  email_verified: boolean;
+  pending_approval: boolean;
   created_at: Date;
   last_login_at: Date | null;
 }

@@ -26,6 +26,12 @@ publicRouter.get('/config', ah(async (_req, res) => {
     localLogin: auth.localLogin,
     oidc: { enabled: auth.oidc.enabled && !!auth.oidc.clientId, buttonLabel: auth.oidc.buttonLabel },
     mailEnabled: mail.provider !== 'none',
+    registration: {
+      enabled: auth.registration.mode !== 'disabled' && auth.localLogin,
+      requiresEmail: auth.registration.mode === 'email' || auth.registration.mode === 'email_approval',
+      requiresApproval: auth.registration.mode === 'approval' || auth.registration.mode === 'email_approval',
+      allowedDomains: auth.registration.allowedDomains,
+    },
     version: config.version,
   };
   res.set('Cache-Control', 'no-cache').json(out);

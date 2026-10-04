@@ -62,7 +62,7 @@ export const DEFAULT_LINK_OPTIONS: Record<LinkSource, LinkOptions> = {
 
 /** Paths owned by the app itself — never usable as a link prefix. */
 export const SYSTEM_RESERVED = [
-  'api', 'auth', 'raw', 'assets', 'branding', 'health', 'login', 'logout', 'my', 'admin',
+  'api', 'auth', 'raw', 'assets', 'branding', 'health', 'login', 'logout', 'register', 'verify-email', 'my', 'admin',
   'settings', 'setup', 'favicon.ico', 'favicon.svg', 'robots.txt', 'static', 'fonts', 'sharex',
 ];
 

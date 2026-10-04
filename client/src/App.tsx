@@ -4,6 +4,8 @@ import { useApp } from '@/store/app';
 import { AppLayout } from '@/components/Layout';
 import { PageLoader } from '@/components/ui';
 import LoginPage from '@/pages/Login';
+import RegisterPage from '@/pages/Register';
+import VerifyEmailPage from '@/pages/VerifyEmail';
 import UploadPage from '@/pages/Upload';
 import MySharesPage from '@/pages/MyShares';
 import RequestsPage from '@/pages/Requests';
@@ -32,11 +34,13 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/register" element={<RegisterPage />} />
+      <Route path="/verify-email" element={<VerifyEmailPage />} />
       <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
         <Route index element={<UploadPage />} />
         <Route path="/my" element={<MySharesPage />} />
         <Route path="/my/requests" element={<RequestsPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/settings/:tab?" element={<SettingsPage />} />
         <Route path="/admin" element={<RequireAuth admin><AdminLayout /></RequireAuth>}>
           <Route index element={<AdminDashboard />} />
           <Route path="files" element={<AdminFiles />} />

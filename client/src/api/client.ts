@@ -1,5 +1,5 @@
 export class ApiError extends Error {
-  constructor(public status: number, message: string, public details?: string[]) { super(message); }
+  constructor(public status: number, message: string, public details?: string[], public code?: string) { super(message); }
 }
 
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
@@ -18,7 +18,7 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
   const data = text ? (() => { try { return JSON.parse(text); } catch { return text; } })() : null;
   if (!res.ok) {
     const msg = (data && typeof data === 'object' && data.error) || `Erreur ${res.status}`;
-    throw new ApiError(res.status, msg, data?.details);
+    throw new ApiError(res.status, msg, data?.details, data?.code);
   }
   return data as T;
 }

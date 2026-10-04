@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import clsx from 'clsx';
 import { Download, KeyRound, Link2, Plus, Terminal, Trash2, User } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -13,7 +14,10 @@ type Tab = 'profile' | 'links' | 'sharex' | 'security';
 
 export default function SettingsPage() {
   const me = useApp((s) => s.me)!;
-  const [tab, setTab] = useState<Tab>('profile');
+  const params = useParams<{ tab?: Tab }>();
+  const navigate = useNavigate();
+  const tab: Tab = params.tab && ['profile', 'links', 'sharex', 'security'].includes(params.tab) ? params.tab : 'profile';
+  const setTab = (t: Tab) => navigate(t === 'profile' ? '/settings' : `/settings/${t}`);
   const tabs: { id: Tab; label: string; icon: typeof User }[] = [
     { id: 'profile', label: 'Profil', icon: User },
     { id: 'links', label: 'Format des liens', icon: Link2 },

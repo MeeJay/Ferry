@@ -8,14 +8,16 @@ import { MAIL_EVENTS, MAIL_THEMES, type AdminStats, type AdminUser, type AuditEn
 import { config } from '../config.js';
 import { db } from '../db/knex.js';
 import { requireAdmin } from '../middleware/auth.js';
-import { getSetting, maskSecrets, setSetting } from '../services/settings.js';
+import { getSetting, maskSecrets, setSetting, withStoredSecrets } from '../services/settings.js';
 import { HttpError, purgeShare, shareDTO, type FileRow, type ShareRow } from '../services/shares.js';
 import { checkHandle, hashPassword, newUserCode, type ProfileRow, type UserRow } from '../services/users.js';
-import { deliver, renderFor } from '../services/mail.js';
+import { deliver, notifyEvent, renderFor } from '../services/mail.js';
+import { fmtDate, inviteDTO, newSecret, type InviteRow } from '../services/registration.js';
+import { hashToken } from '../middleware/auth.js';
 import { DEFAULT_MAIL_TEMPLATES, MAIL_VARIABLES, SAMPLE_VARS, renderEvent } from '../services/mailTemplates.js';
 import { testS3 } from '../services/storage.js';
 import { audit } from '../services/audit.js';
-import { ah, baseUrl } from '../utils/http.js';
+import { absoluteUrl, ah, baseUrl } from '../utils/http.js';
 import { policyLayerSchema, uuid } from '../utils/schemas.js';
 
 export const adminRouter = Router();
@@ -107,6 +109,7 @@ async function adminUsers(): Promise<AdminUser[]> {
   return rows.map((u: any) => ({
     id: u.id, username: u.username, displayName: u.display_name, email: u.email, role: u.role,
     authProvider: u.auth_provider, disabled: u.disabled, quotaProfileId: u.quota_profile_id,
+    emailVerified: u.email_verified, pendingApproval: u.pending_approval,
     storageUsed: Number(u.used ?? 0), shareCount: Number(u.shares ?? 0),
     createdAt: new Date(u.created_at).toISOString(), lastLoginAt: u.last_login_at ? new Date(u.last_login_at).toISOString() : null,
   }));
@@ -174,6 +177,69 @@ adminRouter.delete('/users/:id', ah(async (req, res) => {
   await db('links').whereIn('target_id', db('requests').where({ owner_id: id }).select('id')).delete();
   await db('users').where({ id }).delete();
   audit(req, 'user.deleted', user.username, { shares: shares.length });
+  res.json({ ok: true });
+}));
+
+/** Approves an account created through approval-mode registration. */
+adminRouter.post('/users/:id/approve', ah(async (req, res) => {
+  const id = uuid.parse(req.params.id);
+  const [user] = await db<UserRow>('users').where({ id }).update({ pending_approval: false }).returning('*');
+  if (!user) throw new HttpError(404, 'Utilisateur introuvable');
+  audit(req, 'user.approved', user.username);
+  if (user.email && user.email_verified) {
+    notifyEvent('account_approved', user.email, { name: user.display_name, link: absoluteUrl(req, '/login') }, baseUrl(req));
+  }
+  res.json((await adminUsers()).find((x) => x.id === id));
+}));
+
+/** Marks an account's e-mail as verified (e.g. the verification mail never arrived). */
+adminRouter.post('/users/:id/verify-email', ah(async (req, res) => {
+  const id = uuid.parse(req.params.id);
+  const n = await db('users').where({ id }).update({ email_verified: true });
+  if (!n) throw new HttpError(404, 'Utilisateur introuvable');
+  audit(req, 'user.email_verified', id, { by: 'admin' });
+  res.json((await adminUsers()).find((x) => x.id === id));
+}));
+
+// ── Invitations (work even when self-registration is closed) ───────────────
+
+adminRouter.get('/invites', ah(async (_req, res) => {
+  const rows = await db<InviteRow>('invites').orderBy('created_at', 'desc').limit(200);
+  res.json(rows.map(inviteDTO));
+}));
+
+adminRouter.post('/invites', ah(async (req, res) => {
+  const b = z.object({
+    email: z.string().trim().toLowerCase().email().nullish().or(z.literal('')),
+    displayName: z.string().trim().max(100).nullish(),
+    role: z.enum(['admin', 'user']).default('user'),
+    profileId: z.string().uuid().nullish(),
+    note: z.string().trim().max(1000).nullish(),
+    expiryHours: z.number().int().min(1).max(24 * 90).default(168),
+    send: z.boolean().default(false),
+  }).parse(req.body);
+  const email = b.email || null;
+  if (email && await db('users').whereRaw('lower(email) = ?', [email]).first()) throw new HttpError(409, 'Un compte existe déjà avec cette adresse e-mail');
+  if (b.send && !email) throw new HttpError(400, 'Adresse e-mail requise pour envoyer l’invitation');
+  const token = newSecret();
+  const [row] = await db<InviteRow>('invites').insert({
+    token_hash: hashToken(token), email, display_name: b.displayName || null, role: b.role, profile_id: b.profileId ?? null,
+    note: b.note || null, expires_at: new Date(Date.now() + b.expiryHours * 3600_000), created_by: req.user!.id,
+  }).returning('*');
+  const link = absoluteUrl(req, `/register?invite=${token}`);
+  if (b.send && email) {
+    notifyEvent('account_invite', email, {
+      inviter: req.user!.display_name, message: row.note ?? '', expires: fmtDate(new Date(row.expires_at)), link,
+    }, baseUrl(req));
+  }
+  audit(req, 'invite.created', email ?? row.id, { role: row.role, profile: row.profile_id, sent: b.send });
+  res.status(201).json({ ...inviteDTO(row), link });
+}));
+
+adminRouter.delete('/invites/:id', ah(async (req, res) => {
+  const n = await db('invites').where({ id: uuid.parse(req.params.id) }).delete();
+  if (!n) throw new HttpError(404, 'Invitation introuvable');
+  audit(req, 'invite.revoked', req.params.id);
   res.json({ ok: true });
 }));
 
@@ -285,6 +351,12 @@ const settingSchemas: Record<SettingsKey, z.ZodTypeAny> = {
     oidc: z.object({
       enabled: z.boolean(), tenantId: z.string().max(100), clientId: z.string().max(100), clientSecret: z.string().max(500),
       buttonLabel: z.string().max(60), autoCreate: z.boolean(), adminGroups: z.array(z.string()), allowedGroups: z.array(z.string()),
+      defaultProfileId: z.string().uuid().nullable(),
+    }),
+    registration: z.object({
+      mode: z.enum(['disabled', 'open', 'email', 'approval', 'email_approval']),
+      allowedDomains: z.array(z.string().trim().toLowerCase().regex(/^[a-z0-9.-]+\.[a-z]{2,}$/, 'Domaine invalide')).max(50),
+      defaultProfileId: z.string().uuid().nullable(),
     }),
   }),
   mail: z.object({
@@ -332,10 +404,22 @@ const eventKey = z.enum(MAIL_EVENTS as [MailEventKey, ...MailEventKey[]]);
 
 /** Sends a sample of one event to check delivery and look (uses the saved settings). */
 adminRouter.post('/settings/mail/test', ah(async (req, res) => {
-  const { to, event } = z.object({ to: z.string().email(), event: eventKey.default('share_invite') }).parse(req.body);
+  const { to, event, settings } = z.object({
+    to: z.string().email(),
+    event: eventKey.default('share_invite'),
+    /** Unsaved form values: lets the admin test before saving (masked secrets = stored ones). */
+    settings: settingSchemas.mail.optional(),
+  }).parse(req.body);
+  const sample = { ...SAMPLE_VARS, link: `${baseUrl(req)}/`, sender: req.user!.display_name };
   try {
-    const sample = { ...SAMPLE_VARS, link: `${baseUrl(req)}/`, sender: req.user!.display_name };
-    await deliver(to, await renderFor(event, sample, baseUrl(req)));
+    if (settings) {
+      const mail = await withStoredSecrets('mail', settings);
+      if (mail.provider === 'none') throw new Error('choisissez SMTP ou Microsoft Graph');
+      const branding = await getSetting('branding');
+      await deliver(to, renderEvent(event, sample, { branding, templates: mail.templates, baseUrl: baseUrl(req) }), mail);
+    } else {
+      await deliver(to, await renderFor(event, sample, baseUrl(req)));
+    }
   } catch (err: any) {
     throw new HttpError(400, `Échec de l’envoi : ${err.message}`);
   }

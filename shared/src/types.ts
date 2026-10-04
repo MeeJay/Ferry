@@ -44,18 +44,35 @@ export interface OidcSettings {
   autoCreate: boolean;
   adminGroups: string[];
   allowedGroups: string[];
+  /** Profile given to SSO accounts no Entra group maps to (null = default profile / global). */
+  defaultProfileId: string | null;
+}
+
+export type RegistrationMode = 'disabled' | 'open' | 'email' | 'approval' | 'email_approval';
+
+export interface RegistrationSettings {
+  mode: RegistrationMode;
+  /** Restrict self-registration to these e-mail domains (empty = any). */
+  allowedDomains: string[];
+  /** Profile assigned at self-registration (null = default profile / global). */
+  defaultProfileId: string | null;
 }
 
 export interface AuthSettings {
   localLogin: boolean;
   oidc: OidcSettings;
+  registration: RegistrationSettings;
 }
 
 export type MailTheme = 'signal' | 'minimal' | 'corporate' | 'sunset';
 export const MAIL_THEMES: MailTheme[] = ['signal', 'minimal', 'corporate', 'sunset'];
 
-export type MailEventKey = 'share_invite' | 'request_invite' | 'request_received' | 'share_downloaded';
-export const MAIL_EVENTS: MailEventKey[] = ['share_invite', 'request_invite', 'request_received', 'share_downloaded'];
+export type MailEventKey = 'share_invite' | 'request_invite' | 'request_received' | 'share_downloaded'
+  | 'account_invite' | 'account_verify' | 'account_pending' | 'account_approved';
+export const MAIL_EVENTS: MailEventKey[] = [
+  'share_invite', 'request_invite', 'request_received', 'share_downloaded',
+  'account_invite', 'account_verify', 'account_pending', 'account_approved',
+];
 
 /** Editable copy of one e-mail. Supports {{variables}}; the body keeps line breaks. */
 export interface MailEventTemplate { subject: string; heading: string; body: string; button: string }
@@ -139,6 +156,8 @@ export interface PublicConfig {
   branding: BrandingSettings;
   localLogin: boolean;
   oidc: { enabled: boolean; buttonLabel: string };
+  /** Self-registration open on the login page (invites work regardless). */
+  registration: { enabled: boolean; requiresEmail: boolean; requiresApproval: boolean; allowedDomains: string[] };
   /** A mail provider is configured: links can be sent by e-mail. */
   mailEnabled: boolean;
   version: string;
@@ -253,6 +272,8 @@ export interface AdminUser {
   role: Role;
   authProvider: 'local' | 'oidc';
   disabled: boolean;
+  emailVerified: boolean;
+  pendingApproval: boolean;
   quotaProfileId: string | null;
   storageUsed: number;
   shareCount: number;
@@ -271,3 +292,28 @@ export interface AuditEntry {
 }
 
 export interface Paged<T> { items: T[]; total: number; page: number; pageSize: number }
+
+export interface InviteDTO {
+  id: string;
+  email: string | null;
+  displayName: string | null;
+  role: Role;
+  profileId: string | null;
+  note: string | null;
+  expiresAt: string;
+  usedAt: string | null;
+  usedBy: string | null;
+  createdBy: string | null;
+  createdAt: string;
+}
+
+/** What an invite link reveals to the person opening it. */
+export interface InvitePreview {
+  email: string | null;
+  displayName: string | null;
+  profileName: string | null;
+  invitedBy: string | null;
+  expiresAt: string;
+}
+
+export type RegisterResult = { status: 'active'; me: Me } | { status: 'verify_email' } | { status: 'pending_approval' };

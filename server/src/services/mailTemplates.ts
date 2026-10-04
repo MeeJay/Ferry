@@ -34,6 +34,30 @@ export const DEFAULT_MAIL_TEMPLATES: MailTemplateSettings = {
       body: '« {{title}} » vient d’être téléchargé pour la première fois.',
       button: 'Voir le partage',
     },
+    account_invite: {
+      subject: '{{inviter}} vous invite sur {{instance}}',
+      heading: 'Vous êtes invité sur {{instance}}',
+      body: '{{inviter}} vous a ouvert un accès. Choisissez votre identifiant et votre mot de passe pour l’activer.\n{{message}}\nInvitation valable jusqu’au {{expires}}.',
+      button: 'Créer mon compte',
+    },
+    account_verify: {
+      subject: 'Confirmez votre adresse e-mail',
+      heading: 'Bienvenue {{name}}',
+      body: 'Confirmez votre adresse pour activer votre compte {{instance}}. Le lien est valable 48 heures.\nSi vous n’êtes pas à l’origine de cette inscription, ignorez ce message.',
+      button: 'Confirmer mon adresse',
+    },
+    account_pending: {
+      subject: 'Inscription à valider : {{name}}',
+      heading: 'Un compte attend votre validation',
+      body: '{{name}} (@{{username}}, {{email}}) vient de s’inscrire sur {{instance}}.',
+      button: 'Examiner la demande',
+    },
+    account_approved: {
+      subject: 'Votre compte {{instance}} est activé',
+      heading: 'Bienvenue {{name}} !',
+      body: 'Un administrateur a validé votre compte. Vous pouvez maintenant vous connecter.',
+      button: 'Se connecter',
+    },
   },
 };
 
@@ -43,6 +67,10 @@ export const MAIL_VARIABLES: Record<MailEventKey, string[]> = {
   request_invite: ['sender', 'title', 'message', 'expires', 'link', 'instance'],
   request_received: ['uploader', 'title', 'message', 'files', 'size', 'link', 'instance'],
   share_downloaded: ['title', 'link', 'instance'],
+  account_invite: ['inviter', 'message', 'expires', 'link', 'instance'],
+  account_verify: ['name', 'link', 'instance'],
+  account_pending: ['name', 'username', 'email', 'link', 'instance'],
+  account_approved: ['name', 'link', 'instance'],
 };
 
 /** Sample values for the admin preview. */
@@ -55,6 +83,10 @@ export const SAMPLE_VARS: Record<string, string> = {
   size: '184 Mo',
   expires: '12 octobre 2026',
   link: 'https://share.example.com/mlefevre/photos-seminaire-x7k2',
+  inviter: 'Marie Lefèvre',
+  name: 'Bob Durand',
+  username: 'bob.durand',
+  email: 'bob.durand@example.com',
 };
 
 export interface RenderedMail { subject: string; html: string; text: string }

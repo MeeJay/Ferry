@@ -42,6 +42,12 @@ export const DEFAULT_SETTINGS: SettingsMap = {
       autoCreate: true,
       adminGroups: [],
       allowedGroups: [],
+      defaultProfileId: null,
+    },
+    registration: {
+      mode: 'disabled',
+      allowedDomains: [],
+      defaultProfileId: null,
     },
   },
   mail: {
@@ -87,13 +93,19 @@ export async function getSetting<K extends SettingsKey>(key: K): Promise<Setting
   return value;
 }
 
-export async function setSetting<K extends SettingsKey>(key: K, value: SettingsMap[K]): Promise<SettingsMap[K]> {
+/** Completes a value coming from the UI: defaults for missing fields, stored secrets for masked ones. */
+export async function withStoredSecrets<K extends SettingsKey>(key: K, value: SettingsMap[K]): Promise<SettingsMap[K]> {
   const current = await getSetting(key);
   const next = merge(DEFAULT_SETTINGS[key], value) as SettingsMap[K];
   // A masked secret coming back from the UI means "keep the stored one".
   for (const p of SECRETS[key] ?? []) {
     if (getPath(next, p) === SECRET_PLACEHOLDER) setPath(next, p, getPath(current, p));
   }
+  return next;
+}
+
+export async function setSetting<K extends SettingsKey>(key: K, value: SettingsMap[K]): Promise<SettingsMap[K]> {
+  const next = await withStoredSecrets(key, value);
   await db('settings')
     .insert({ key, value: JSON.stringify(next), updated_at: db.fn.now() })
     .onConflict('key').merge();

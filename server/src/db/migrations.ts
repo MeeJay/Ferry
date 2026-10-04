@@ -166,6 +166,43 @@ const migrations: Migration[] = [
       await knex.schema.alterTable('quota_profiles', (t) => { t.dropColumn('sharex_enabled'); });
     },
   },
+  {
+    name: '003_registration',
+    async up(knex) {
+      await knex.schema.alterTable('users', (t) => {
+        t.boolean('email_verified').notNullable().defaultTo(true);
+        t.boolean('pending_approval').notNullable().defaultTo(false);
+      });
+      await knex.schema.createTable('invites', (t) => {
+        t.uuid('id').primary().defaultTo(knex.raw('gen_random_uuid()'));
+        t.text('token_hash').notNullable().unique();
+        t.text('email');
+        t.text('display_name');
+        t.text('role').notNullable().defaultTo('user');
+        t.uuid('profile_id').references('quota_profiles.id').onDelete('SET NULL');
+        t.text('note');
+        t.timestamp('expires_at', { useTz: true }).notNullable();
+        t.timestamp('used_at', { useTz: true });
+        t.uuid('used_by').references('users.id').onDelete('SET NULL');
+        t.uuid('created_by').references('users.id').onDelete('SET NULL');
+        t.timestamp('created_at', { useTz: true }).notNullable().defaultTo(knex.fn.now());
+      });
+      await knex.schema.createTable('email_tokens', (t) => {
+        t.uuid('id').primary().defaultTo(knex.raw('gen_random_uuid()'));
+        t.uuid('user_id').notNullable().references('users.id').onDelete('CASCADE');
+        t.text('token_hash').notNullable().unique();
+        t.text('purpose').notNullable();
+        t.timestamp('expires_at', { useTz: true }).notNullable();
+        t.timestamp('used_at', { useTz: true });
+        t.timestamp('created_at', { useTz: true }).notNullable().defaultTo(knex.fn.now());
+      });
+    },
+    async down(knex) {
+      await knex.schema.dropTableIfExists('email_tokens');
+      await knex.schema.dropTableIfExists('invites');
+      await knex.schema.alterTable('users', (t) => { t.dropColumn('email_verified'); t.dropColumn('pending_approval'); });
+    },
+  },
 ];
 
 export const migrationSource: Knex.MigrationSource<Migration> = {

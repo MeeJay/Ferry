@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 import {
-  ArrowUpRight, BarChart3, FolderOpen, History, Inbox, Layers, LogOut, Menu, Moon, Settings, SlidersHorizontal, Sun, Users, X, Files,
+  ArrowUpRight, BarChart3, FolderOpen, Terminal, History, Inbox, Layers, LogOut, Menu, Moon, Settings, SlidersHorizontal, Sun, Users, X, Files,
 } from 'lucide-react';
 import { formatBytes } from '@ferry/shared';
 import { useApp } from '@/store/app';
@@ -45,11 +45,12 @@ export function ThemeSwitch({ className }: { className?: string }) {
       aria-checked={theme === 'dark'}
       aria-label="Thème sombre"
       title={theme === 'dark' ? 'Passer en clair' : 'Passer en sombre'}
-      className={clsx('relative inline-flex h-9 w-[68px] shrink-0 items-center rounded-full bg-surface-2/70 p-0.5 transition', className)}
+      className={clsx('relative grid h-8 w-16 shrink-0 grid-cols-2 rounded-full bg-surface-2 p-0.5 transition', className)}
     >
-      <span className={clsx('absolute size-7 rounded-full bg-grad glow transition-transform duration-200', theme === 'dark' ? 'translate-x-[32px]' : 'translate-x-0')} />
-      <Sun className={clsx('relative z-10 mx-1.5 size-4 transition', theme === 'dark' ? 'text-ink-3' : 'text-white')} />
-      <Moon className={clsx('relative z-10 mx-1.5 size-4 transition', theme === 'dark' ? 'text-white' : 'text-ink-3')} />
+      {/* Two equal halves: the knob covers exactly one, each icon is centred in its own. */}
+      <span className={clsx('absolute inset-y-0.5 left-0.5 w-[calc(50%-2px)] rounded-full bg-grad glow transition-transform duration-200', theme === 'dark' && 'translate-x-full')} />
+      <span className="relative z-10 flex items-center justify-center"><Sun className={clsx('size-4 transition', theme === 'dark' ? 'text-ink-3' : 'text-white')} /></span>
+      <span className="relative z-10 flex items-center justify-center"><Moon className={clsx('size-4 transition', theme === 'dark' ? 'text-white' : 'text-ink-3')} /></span>
     </button>
   );
 }
@@ -123,12 +124,21 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           </div>
           {storageQuota > 0 && <div className="mt-2.5 h-1.5 rounded-full bg-surface-2"><div className="h-full rounded-full bg-grad" style={{ width: `${Math.max(2, pct)}%` }} /></div>}
         </div>
-        <div className="flex items-center gap-3 rounded-md px-1.5 py-1">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-grad text-[13px] font-bold text-white glow">{initials(me.displayName)}</span>
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-semibold">{me.displayName}</div>
-            <div className="truncate font-mono text-xs text-ink-3">@{me.username}</div>
-          </div>
+        <div className="flex items-center gap-1">
+          <Link to="/settings" onClick={onNavigate} title="Mon profil"
+            className="flex min-w-0 flex-1 items-center gap-3 rounded-md px-1.5 py-1 transition hover:bg-surface-3">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-grad text-[13px] font-bold text-white glow">{initials(me.displayName)}</span>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-semibold">{me.displayName}</div>
+              <div className="truncate font-mono text-xs text-ink-3">@{me.username}</div>
+            </div>
+          </Link>
+          {me.limits.sharexEnabled && (
+            <Link to="/settings/sharex" onClick={onNavigate} title="ShareX & API" aria-label="ShareX & API"
+              className="flex size-8 items-center justify-center rounded-md text-ink-3 hover:bg-ink/5 hover:text-ink">
+              <Terminal className="size-[18px]" />
+            </Link>
+          )}
           <button onClick={async () => { await logout(); navigate('/login'); }} title="Se déconnecter" aria-label="Se déconnecter"
             className="flex size-8 items-center justify-center rounded-md text-ink-3 hover:bg-ink/5 hover:text-danger">
             <LogOut className="size-[18px]" />

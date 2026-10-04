@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from 'react';
-import { Navigate, useSearchParams, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useSearchParams, useNavigate } from 'react-router-dom';
 import { ArrowRight, Check, Copy, FileText, Image as ImageIcon, Lock } from 'lucide-react';
 import type { Me } from '@ferry/shared';
-import { api, errorMessage } from '@/api/client';
+import { api, ApiError, errorMessage } from '@/api/client';
 import { useApp } from '@/store/app';
 import { Brand, ThemeSwitch } from '@/components/Layout';
 import clsx from 'clsx';
@@ -36,6 +36,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState(ERRORS[params.get('error') ?? ''] ?? '');
   const [loading, setLoading] = useState(false);
+  const [errorCode, setErrorCode] = useState<string | undefined>();
+  const [resent, setResent] = useState(false);
 
   if (me) return <Navigate to={next} replace />;
   if (!config) return null;
@@ -45,11 +47,13 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError('');
+    setErrorCode(undefined);
     try {
       setMe(await api.post<Me>('/api/auth/login', { username, password }));
       navigate(next, { replace: true });
     } catch (err) {
       setError(errorMessage(err));
+      setErrorCode(err instanceof ApiError ? err.code : undefined);
     } finally {
       setLoading(false);
     }
@@ -100,12 +104,21 @@ export default function LoginPage() {
               )}
               {localLogin && (
                 <form onSubmit={submit} className="space-y-4">
-                  <Field label="Identifiant"><Input autoFocus autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} /></Field>
+                  <Field label="Identifiant ou e-mail"><Input autoFocus autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} /></Field>
                   <Field label="Mot de passe"><Input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
                   <Button variant="accent" size="lg" className="w-full" loading={loading} icon={<ArrowRight className="size-4" />}>Se connecter</Button>
+                  {errorCode === 'verify_email' && (
+                    <button type="button" disabled={resent} className="w-full text-center text-xs font-semibold text-accent disabled:text-ink-3"
+                      onClick={async () => { await api.post('/api/auth/resend-verification', { login: username }); setResent(true); }}>
+                      {resent ? 'Nouveau lien envoyé, vérifiez votre boîte mail.' : 'Renvoyer l’e-mail de confirmation'}
+                    </button>
+                  )}
                 </form>
               )}
             </div>
+            {config.registration.enabled && (
+              <p className="mt-6 text-center text-sm text-ink-3">Pas encore de compte ? <Link to="/register" className="font-semibold text-accent">Créer un compte</Link></p>
+            )}
           </div>
         </div>
       </section>
