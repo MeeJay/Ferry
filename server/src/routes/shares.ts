@@ -6,7 +6,7 @@ import {
   assertCapacity, computeExpiry, createPendingShare, finalizeShare, HttpError, purgeShare, resolveVisibility, shareDTO, shareMailVars,
   type FileRow, type ShareRow,
 } from '../services/shares.js';
-import { effectiveLimits, hashPassword } from '../services/users.js';
+import { effectiveLimits, effectiveParallel, hashPassword } from '../services/users.js';
 import { audit } from '../services/audit.js';
 import { getSetting } from '../services/settings.js';
 import { notifyEvent } from '../services/mail.js';
@@ -50,7 +50,7 @@ sharesRouter.post('/', ah(async (req, res) => {
   assertCapacity(limits, 0, total);
 
   const share = await createPendingShare(req.user!, { ...body, source: 'web', expectedFiles: body.files.length });
-  res.status(201).json({ id: share.id, uploadToken: share.upload_token, chunkSize: req.app.get('chunkSize'), parallel: (await getSetting('limits')).uploadParallel });
+  res.status(201).json({ id: share.id, uploadToken: share.upload_token, chunkSize: req.app.get('chunkSize'), parallel: await effectiveParallel(req.user!) });
 }));
 
 /** Step 2: once every tus upload finished, publish the link. */

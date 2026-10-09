@@ -20,6 +20,8 @@ export interface ChunkEvent {
   itemId: string;
   index: number;
   count: number;
+  /** Size of this chunk: the overall bar grows by it when the chunk lands. */
+  bytes: number;
   fraction: number;
   done: boolean;
 }
@@ -125,16 +127,16 @@ export async function uploadAll(
     let lastChunkEmit = 0;
     for (let attempt = 0; ; attempt++) {
       // Show the chunk in the lane as soon as it leaves, before its first progress event.
-      onChunk?.({ key, itemId, index, count: session.count, fraction: 0, done: false });
+      onChunk?.({ key, itemId, index, count: session.count, bytes: blob.size, fraction: 0, done: false });
       try {
         await putChunk(`/api/chunks/${session.id}/${index}`, token, blob, (fraction) => {
           st.chunks[index] = fraction;
           emitItem(itemId);
           const now = performance.now();
-          if (now - lastChunkEmit > 80) { lastChunkEmit = now; onChunk?.({ key, itemId, index, count: session.count, fraction, done: false }); }
+          if (now - lastChunkEmit > 80) { lastChunkEmit = now; onChunk?.({ key, itemId, index, count: session.count, bytes: blob.size, fraction, done: false }); }
         });
         st.chunks[index] = 1;
-        onChunk?.({ key, itemId, index, count: session.count, fraction: 1, done: true });
+        onChunk?.({ key, itemId, index, count: session.count, bytes: blob.size, fraction: 1, done: true });
         emitItem(itemId, true);
         return;
       } catch (err) {

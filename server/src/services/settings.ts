@@ -31,6 +31,7 @@ export const DEFAULT_SETTINGS: SettingsMap = {
     sharexDomains: [],
     requestMaxExpiryHours: 720,
     uploadParallel: 4,
+    uploadParallelMax: 8,
   },
   auth: {
     localLogin: true,

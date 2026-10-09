@@ -7,12 +7,13 @@ import { useApp } from '@/store/app';
 import { Button, buttonClasses, CopyLink, Field, Input, Progress, Segmented, Textarea, Toggle } from '@/components/ui';
 import { DropZone } from '@/components/DropZone';
 import { TransferStats } from '@/components/TransferStats';
-import { ChunkBar, ChunkLane } from '@/components/ChunkLane';
+import { ChunkBar, ChunkLane, useLandedPercent } from '@/components/ChunkLane';
 import { FileThumb } from '@/components/FileThumb';
 import { UserLinkEditor } from '@/components/LinkPolicy';
 import { RecipientsInput } from '@/components/RecipientsInput';
+import { ParallelPicker } from '@/components/ParallelPicker';
 import { absolute, EXPIRY_PRESETS, expiryLabel, formatBytes } from '@/lib/format';
-import { batchProgress, useTransfer } from '@/store/transfer';
+import { useTransfer } from '@/store/transfer';
 
 export default function UploadPage() {
   const me = useApp((s) => s.me)!;
@@ -65,7 +66,8 @@ export default function UploadPage() {
     });
   }
 
-  const overall = batchProgress(items);
+  // The bar (and its %) only grows when finished chunks land in it.
+  const overall = useLandedPercent(total);
 
   // ── Done ──
   if (phase === 'done' && result) {
@@ -199,6 +201,7 @@ export default function UploadPage() {
           )}
         </div>
 
+        <div className="card p-4"><ParallelPicker compact /></div>
         {problems.length > 0 && <div className="rounded-md bg-danger/10 px-4 py-3 text-sm font-semibold text-danger">{problems.join(' · ')}</div>}
         <Button variant="accent" size="xl" className="w-full" disabled={!items.length || problems.length > 0} loading={busy}
           icon={<Send className="size-5" />} onClick={send}>

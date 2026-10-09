@@ -11,7 +11,7 @@ import { FileThumb } from '@/components/FileThumb';
 import { DropZone } from '@/components/DropZone';
 import { TransferStats } from '@/components/TransferStats';
 import { useLeaveGuard } from '@/components/TransferDock';
-import { ChunkBar, ChunkLane, useChunkLane } from '@/components/ChunkLane';
+import { ChunkBar, ChunkLane, useChunkLane, useLandedPercent } from '@/components/ChunkLane';
 import { absolute, formatBytes, relative } from '@/lib/format';
 import { newId, uploadAll, type UploadItem } from '@/lib/upload';
 
@@ -182,7 +182,7 @@ function DropPage({ res, path, onUnlocked }: { res: Extract<ResolveResult, { kin
   const [phase, setPhase] = useState<'pick' | 'uploading' | 'done'>('pick');
   const [parallel, setParallel] = useState(4);
   const total = items.reduce((s, i) => s + i.file.size, 0);
-  const overall = total ? items.reduce((s, i) => s + (i.progress / 100) * i.file.size, 0) / total * 100 : 0;
+  const overall = useLandedPercent(total);
   const tooMany = !!r.maxFiles && items.length > r.maxFiles;
   const tooBig = !!r.maxSizeMb && total > r.maxSizeMb * 1024 * 1024;
 

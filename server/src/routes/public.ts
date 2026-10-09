@@ -8,7 +8,7 @@ import { getSetting } from '../services/settings.js';
 import { resolveSegments } from '../services/links.js';
 import { checkShareAccess, loadShare, markUnlocked } from '../services/access.js';
 import { createPendingShare, finalizeShare, HttpError, shareDTO, shareMailVars, type FileRow, type ShareRow } from '../services/shares.js';
-import { getUser, verifyPassword } from '../services/users.js';
+import { effectiveParallel, getUser, verifyPassword } from '../services/users.js';
 import { notifyEvent } from '../services/mail.js';
 import { audit } from '../services/audit.js';
 import { ah, baseUrl } from '../utils/http.js';
@@ -125,7 +125,7 @@ publicRouter.post('/requests/:id/session', dropLimiter, ah(async (req, res) => {
     expectedFiles: b.files,
     uploader: { name: b.name, email: b.email || null, ip: req.ip ?? null },
   });
-  res.status(201).json({ id: share.id, uploadToken: share.upload_token, chunkSize: req.app.get('chunkSize'), parallel: (await getSetting('limits')).uploadParallel });
+  res.status(201).json({ id: share.id, uploadToken: share.upload_token, chunkSize: req.app.get('chunkSize'), parallel: await effectiveParallel(null) });
 }));
 
 publicRouter.post('/requests/:id/session/:shareId/complete', ah(async (req, res) => {

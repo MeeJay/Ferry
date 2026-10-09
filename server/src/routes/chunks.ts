@@ -12,6 +12,7 @@ import { db } from '../db/knex.js';
 import { logger } from '../logger.js';
 import { assertCapacity, HttpError, ingestFile, trackIngest, type ShareRow } from '../services/shares.js';
 import { effectiveLimits, getUser } from '../services/users.js';
+import { getSetting } from '../services/settings.js';
 import { ah } from '../utils/http.js';
 
 // Parallel chunked uploads (web UI and drop pages).
@@ -120,8 +121,28 @@ chunksRouter.get('/:id', ah(async (req, res) => {
   res.json({ received: session.received, count: session.count, chunkSize: session.chunkSize });
 }));
 
+/** Chunk PUTs currently being written, per share: the admin ceiling holds even for custom clients. */
+const activePuts = new Map<string, number>();
+
 chunksRouter.put('/:id/:index', ah(async (req, res) => {
   const { session } = await authorize(req, req.params.id);
+  const max = Math.max(1, (await getSetting('limits')).uploadParallelMax);
+  const active = activePuts.get(session.shareId) ?? 0;
+  if (active >= max) {
+    res.set('Retry-After', '1');
+    throw new HttpError(429, `Maximum ${max} fragments simultanés`);
+  }
+  activePuts.set(session.shareId, active + 1);
+  try {
+    await writeChunk(req, session);
+  } finally {
+    const n = (activePuts.get(session.shareId) ?? 1) - 1;
+    if (n > 0) activePuts.set(session.shareId, n); else activePuts.delete(session.shareId);
+  }
+  res.json({ received: session.received.length, count: session.count });
+}));
+
+async function writeChunk(req: Request, session: Session) {
   const index = Number(req.params.index);
   if (!Number.isInteger(index) || index < 0 || index >= session.count) throw new HttpError(400, 'Index de fragment invalide');
   const start = index * session.chunkSize;
@@ -144,8 +165,7 @@ chunksRouter.put('/:id/:index', ah(async (req, res) => {
     session.received.push(index);
     await persist(session);
   }
-  res.json({ received: session.received.length, count: session.count });
-}));
+}
 
 chunksRouter.post('/:id/complete', ah(async (req, res) => {
   const { session, share } = await authorize(req, req.params.id);

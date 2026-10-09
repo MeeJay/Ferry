@@ -203,6 +203,15 @@ const migrations: Migration[] = [
       await knex.schema.alterTable('users', (t) => { t.dropColumn('email_verified'); t.dropColumn('pending_approval'); });
     },
   },
+  {
+    name: '004_user_upload_parallel',
+    async up(knex) {
+      await knex.schema.alterTable('users', (t) => { t.smallint('upload_parallel'); });
+    },
+    async down(knex) {
+      await knex.schema.alterTable('users', (t) => { t.dropColumn('upload_parallel'); });
+    },
+  },
 ];
 
 export const migrationSource: Knex.MigrationSource<Migration> = {

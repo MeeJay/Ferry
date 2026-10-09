@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowUp } from 'lucide-react';
 import { formatBytes } from '@/lib/format';
 import type { UploadItem } from '@/lib/upload';
+import { useLandedPercent } from './ChunkLane';
 
 /** Window over which the speed is averaged: long enough to smooth tus chunk bursts. */
 const WINDOW_MS = 5000;
@@ -60,7 +61,10 @@ export function useTransferStats(items: UploadItem[], active: boolean) {
 }
 
 export function TransferStats({ items, active }: { items: UploadItem[]; active: boolean }) {
-  const { total, loaded, percent, speed, eta } = useTransferStats(items, active);
+  const { total, speed, eta } = useTransferStats(items, active);
+  // Percent and bytes follow the bar (landed chunks); speed and ETA use the live byte count.
+  const percent = useLandedPercent(total);
+  const loaded = (total * percent) / 100;
   if (!active) return null;
   return (
     <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs tabular-nums">

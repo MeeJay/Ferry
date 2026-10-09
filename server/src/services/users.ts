@@ -22,6 +22,7 @@ export interface UserRow {
   disabled: boolean;
   email_verified: boolean;
   pending_approval: boolean;
+  upload_parallel: number | null;
   created_at: Date;
   last_login_at: Date | null;
 }
@@ -90,8 +91,16 @@ export async function linkPolicies(user: UserRow): Promise<Record<LinkSource, Re
   ) as Record<LinkSource, ResolvedLinkPolicy>;
 }
 
+/** Chunks in flight for an uploader: their choice (or the admin default), never above the admin ceiling. */
+export async function effectiveParallel(user: Pick<UserRow, 'upload_parallel'> | null): Promise<number> {
+  const l = await getSetting('limits');
+  const max = Math.max(1, l.uploadParallelMax);
+  return Math.min(max, Math.max(1, user?.upload_parallel ?? l.uploadParallel));
+}
+
 export async function toMe(user: UserRow): Promise<Me> {
   const links = await getSetting('links');
+  const limitsSetting = await getSetting('limits');
   return {
     id: user.id,
     username: user.username,
@@ -105,6 +114,9 @@ export async function toMe(user: UserRow): Promise<Me> {
     limits: await effectiveLimits(user),
     linkPolicies: await linkPolicies(user),
     publicMinRandom: links.publicMinRandom,
+    uploadParallel: await effectiveParallel(user),
+    uploadParallelPref: user.upload_parallel,
+    uploadParallelMax: Math.max(1, limitsSetting.uploadParallelMax),
   };
 }
 

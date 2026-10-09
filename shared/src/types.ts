@@ -33,8 +33,10 @@ export interface LimitSettings {
   /** Extra hostnames (pointing to this instance) ShareX configs may return links on. */
   sharexDomains: string[];
   requestMaxExpiryHours: number;
-  /** Chunks sent at once by the web uploader (whole batch). */
+  /** Chunks sent at once by the web uploader: default for users / drop pages. */
   uploadParallel: number;
+  /** Ceiling a user may choose, also enforced server-side per share. */
+  uploadParallelMax: number;
 }
 
 export interface OidcSettings {
@@ -178,6 +180,10 @@ export interface Me {
   limits: EffectiveLimits;
   linkPolicies: Record<LinkSource, ResolvedLinkPolicy>;
   publicMinRandom: number;
+  /** Effective chunks-in-flight for this user, their own choice (null = admin default) and the ceiling. */
+  uploadParallel: number;
+  uploadParallelPref: number | null;
+  uploadParallelMax: number;
 }
 
 export interface FileDTO {

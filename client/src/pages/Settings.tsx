@@ -9,6 +9,7 @@ import { useApp } from '@/store/app';
 import { dateTime, formatBytes, relative } from '@/lib/format';
 import { Badge, Button, Confirm, CopyLink, Empty, Field, IconButton, Input, Modal, SectionTitle, Segmented, Select, Toggle } from '@/components/ui';
 import { SOURCE_LABELS, UserLinkEditor } from '@/components/LinkPolicy';
+import { ParallelPicker } from '@/components/ParallelPicker';
 
 type Tab = 'profile' | 'links' | 'sharex' | 'security';
 
@@ -84,6 +85,7 @@ function ProfileTab({ me }: { me: Me }) {
             <Input value={vanity} disabled={!vanityAllowed} onChange={(e) => setVanity(e.target.value.toLowerCase())} placeholder="—" className="font-mono" />
           </Field>
           <Field label="E-mail"><Input value={me.email ?? ''} disabled /></Field>
+          <div className="sm:col-span-2 rounded-md bg-surface-2 p-3"><ParallelPicker compact /></div>
         </div>
       </Panel>
       <Panel title="Vos limites">

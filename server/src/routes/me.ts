@@ -17,10 +17,13 @@ meRouter.patch('/', ah(async (req, res) => {
   const b = z.object({
     displayName: z.string().min(1).max(100).optional(),
     vanity: z.string().max(32).nullable().optional(),
+    /** null = follow the admin default. Clamped to the admin ceiling at use. */
+    uploadParallel: z.number().int().min(1).max(32).nullable().optional(),
   }).parse(req.body);
   const user = req.user!;
   const patch: Partial<UserRow> = {};
   if (b.displayName !== undefined) patch.display_name = b.displayName.trim();
+  if (b.uploadParallel !== undefined) patch.upload_parallel = b.uploadParallel;
   if (b.vanity !== undefined) {
     const policies = await linkPolicies(user);
     const allowed = LINK_SOURCES.some((s) => policies[s].options.prefixMode === 'vanity' || !policies[s].locked.prefixMode);

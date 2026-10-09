@@ -2,7 +2,8 @@ import { useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowUp, Check, X } from 'lucide-react';
 import { useApp } from '@/store/app';
-import { batchProgress, useTransfer } from '@/store/transfer';
+import { useTransfer } from '@/store/transfer';
+import { useLandedPercent } from './ChunkLane';
 import { formatBitrate, formatEta, useTransferStats } from './TransferStats';
 import { Progress } from './ui';
 
@@ -20,6 +21,7 @@ export function TransferDock({ onNavigate }: { onNavigate?: () => void }) {
   const navigate = useNavigate();
   const uploading = phase === 'uploading';
   const stats = useTransferStats(items, uploading);
+  const landed = useLandedPercent(stats.total);
   if (location.pathname === '/' || (!uploading && !(phase === 'done' && result))) return null;
 
   const open = () => { navigate('/'); onNavigate?.(); };
@@ -42,11 +44,11 @@ export function TransferDock({ onNavigate }: { onNavigate?: () => void }) {
       <div className="flex items-center gap-2.5">
         <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-grad text-white"><ArrowUp className="size-4 motion-safe:animate-bounce" /></span>
         <span className="min-w-0 flex-1">
-          <span className="block text-[13px] font-semibold">Envoi en cours · {Math.floor(stats.percent)} %</span>
+          <span className="block text-[13px] font-semibold">Envoi en cours · {Math.floor(landed)} %</span>
           <span className="block truncate text-xs text-ink-3">{label(items.map((i) => i.file.name))}</span>
         </span>
       </div>
-      <Progress value={stats.percent} className="mt-2.5 !h-1.5" />
+      <Progress value={landed} className="mt-2.5 !h-1.5" />
       <div className="mt-1.5 flex justify-between text-[11px] tabular-nums text-ink-3">
         <span>{stats.speed !== null ? formatBitrate(stats.speed) : '—'}</span>
         <span>{stats.eta !== null ? `reste ${formatEta(stats.eta)}` : 'calcul…'}</span>
@@ -60,10 +62,11 @@ export function TransferPill() {
   const { phase, items } = useTransfer();
   const location = useLocation();
   const navigate = useNavigate();
+  const landed = useLandedPercent(items.reduce((s, i) => s + i.file.size, 0));
   if (phase !== 'uploading' || location.pathname === '/') return null;
   return (
     <button onClick={() => navigate('/')} className="flex h-8 items-center gap-1.5 rounded-full bg-grad px-3 text-xs font-semibold tabular-nums text-white" title="Revenir au transfert">
-      <ArrowUp className="size-3.5" />{Math.floor(batchProgress(items))} %
+      <ArrowUp className="size-3.5" />{Math.floor(landed)} %
     </button>
   );
 }
@@ -77,7 +80,7 @@ export function useTransferGuards() {
   const items = useTransfer((s) => s.items);
   const brand = useApp((s) => s.config?.branding.name ?? 'Ferry');
   const uploading = phase === 'uploading';
-  const pct = Math.floor(batchProgress(items));
+  const pct = Math.floor(useLandedPercent(items.reduce((s, i) => s + i.file.size, 0)));
 
   useEffect(() => {
     document.title = uploading ? `${pct} % · Envoi — ${brand}` : brand;
