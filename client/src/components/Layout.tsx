@@ -7,6 +7,7 @@ import {
 import { formatBytes } from '@ferry/shared';
 import { useApp } from '@/store/app';
 import { useTheme } from '@/lib/theme';
+import { TransferDock, TransferPill, useTransferGuards } from './TransferDock';
 
 /** Ferry mark: a sail over a wave, on the accent gradient. */
 export function Mark({ className }: { className?: string }) {
@@ -114,6 +115,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       </nav>
 
       <div className="mt-auto space-y-3">
+        <TransferDock onNavigate={onNavigate} />
         <div className="rounded-md bg-surface-2/50 p-4">
           <div className="flex items-baseline justify-between">
             <span className="label">Stockage</span>
@@ -162,6 +164,7 @@ export function AppLayout() {
   const [drawer, setDrawer] = useState(false);
   const location = useLocation();
   useEffect(() => setDrawer(false), [location.pathname]);
+  useTransferGuards();
   return (
     <div className="min-h-screen">
       {/* Desktop sidebar */}
@@ -173,6 +176,7 @@ export function AppLayout() {
       <header className="sticky top-0 z-30 flex h-12 items-center justify-between bg-bg/80 px-4 backdrop-blur-xl lg:hidden">
         <Link to="/"><Brand /></Link>
         <div className="flex items-center gap-2">
+          <TransferPill />
           <ThemeSwitch />
           <button className="flex size-9 items-center justify-center rounded-md bg-surface-2" onClick={() => setDrawer(true)} aria-label="Menu"><Menu className="size-5" /></button>
         </div>

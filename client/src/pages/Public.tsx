@@ -10,6 +10,7 @@ import { Button, buttonClasses, CopyLink, Field, Input, PageLoader, Progress, Te
 import { FileThumb } from '@/components/FileThumb';
 import { DropZone } from '@/components/DropZone';
 import { TransferStats } from '@/components/TransferStats';
+import { useLeaveGuard } from '@/components/TransferDock';
 import { ChunkBar, ChunkLane, useChunkLane } from '@/components/ChunkLane';
 import { absolute, formatBytes, relative } from '@/lib/format';
 import { newId, uploadAll, type UploadItem } from '@/lib/upload';
@@ -188,6 +189,9 @@ function DropPage({ res, path, onUnlocked }: { res: Extract<ResolveResult, { kin
   const add = useCallback((files: File[]) => {
     setItems((prev) => [...prev, ...files.map((file) => ({ id: newId(), file, progress: 0, status: 'queued' as const }))]);
   }, []);
+
+  // Before any early return: hooks must run in the same order on every render.
+  useLeaveGuard(phase === 'uploading');
 
   if (!res.unlocked) return <PasswordGate path={path} title={r.title} onUnlocked={onUnlocked} />;
 

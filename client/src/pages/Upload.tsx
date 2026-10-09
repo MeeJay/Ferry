@@ -1,43 +1,40 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import clsx from 'clsx';
 import { Check, ChevronDown, Eye, EyeOff, Globe, KeyRound, Lock, Plus, RotateCcw, Send, X } from 'lucide-react';
-import toast from 'react-hot-toast';
-import type { LinkOptions, ShareDTO, Visibility } from '@ferry/shared';
-import { api, errorMessage } from '@/api/client';
+import type { LinkOptions, Visibility } from '@ferry/shared';
 import { useApp } from '@/store/app';
 import { Button, buttonClasses, CopyLink, Field, Input, Progress, Segmented, Textarea, Toggle } from '@/components/ui';
 import { DropZone } from '@/components/DropZone';
 import { TransferStats } from '@/components/TransferStats';
-import { ChunkBar, ChunkLane, useChunkLane } from '@/components/ChunkLane';
+import { ChunkBar, ChunkLane } from '@/components/ChunkLane';
 import { FileThumb } from '@/components/FileThumb';
 import { UserLinkEditor } from '@/components/LinkPolicy';
 import { RecipientsInput } from '@/components/RecipientsInput';
 import { absolute, EXPIRY_PRESETS, expiryLabel, formatBytes } from '@/lib/format';
-import { newId, uploadAll, type UploadItem } from '@/lib/upload';
-
-type Phase = 'pick' | 'configure' | 'uploading' | 'done';
+import { batchProgress, useTransfer } from '@/store/transfer';
 
 export default function UploadPage() {
   const me = useApp((s) => s.me)!;
   const limits = me.limits;
-  const [phase, setPhase] = useState<Phase>('pick');
-  const [parallel, setParallel] = useState(4);
-  const [items, setItems] = useState<UploadItem[]>([]);
-  const [result, setResult] = useState<ShareDTO | null>(null);
-
-  const [title, setTitle] = useState('');
-  const [message, setMessage] = useState('');
-  const [visibility, setVisibility] = useState<Visibility>(limits.defaultVisibility === 'public' && limits.allowPublic ? 'public' : 'private');
-  const [expiry, setExpiry] = useState(limits.defaultExpiryHours);
-  const [password, setPassword] = useState('');
-  const [usePassword, setUsePassword] = useState(false);
+  const t = useTransfer();
+  const { phase, parallel, items, result, title, message, password, usePassword, maxDownloads, notify, recipients, linkOverride } = t;
+  // null = not chosen yet: fall back to the user's defaults.
+  const visibility: Visibility = t.visibility ?? (limits.defaultVisibility === 'public' && limits.allowPublic ? 'public' : 'private');
+  const expiry = t.expiry ?? limits.defaultExpiryHours;
+  const setTitle = (v: string) => t.set('title', v);
+  const setMessage = (v: string) => t.set('message', v);
+  const setVisibility = (v: Visibility) => t.set('visibility', v);
+  const setExpiry = (v: number) => t.set('expiry', v);
+  const setPassword = (v: string) => t.set('password', v);
+  const setUsePassword = (v: boolean) => t.set('usePassword', v);
+  const setMaxDownloads = (v: string) => t.set('maxDownloads', v);
+  const setNotify = (v: boolean) => t.set('notify', v);
+  const setRecipients = (v: string[]) => t.set('recipients', v);
+  const setLinkOverride = (v: Partial<LinkOptions>) => t.set('linkOverride', v);
+  const { addFiles, reset } = t;
   const [showPassword, setShowPassword] = useState(false);
-  const [maxDownloads, setMaxDownloads] = useState('');
-  const [notify, setNotify] = useState(false);
-  const [recipients, setRecipients] = useState<string[]>([]);
   const mailEnabled = useApp((s) => s.config?.mailEnabled);
-  const [linkOverride, setLinkOverride] = useState<Partial<LinkOptions>>({});
   const [showLink, setShowLink] = useState(false);
 
   const total = items.reduce((s, i) => s + i.file.size, 0);
@@ -55,49 +52,20 @@ export default function UploadPage() {
     return p;
   }, [items, total, limits]);
 
-  const addFiles = useCallback((files: File[]) => {
-    setItems((prev) => {
-      const known = new Set(prev.map((i) => `${i.file.name}:${i.file.size}`));
-      return [...prev, ...files.filter((f) => !known.has(`${f.name}:${f.size}`)).map((file) => ({ id: newId(), file, progress: 0, status: 'queued' as const }))];
+  function send() {
+    void t.send({
+      title: title || null,
+      message: message || null,
+      visibility,
+      expiryHours: expiry,
+      password: usePassword && password ? password : null,
+      maxDownloads: maxDownloads ? Number(maxDownloads) : null,
+      notifyOnDownload: notify,
+      linkOverride: Object.keys(linkOverride).length ? linkOverride : null,
     });
-    setPhase((p) => (p === 'pick' || p === 'done' ? 'configure' : p));
-  }, []);
-
-  function reset() {
-    setItems([]); setResult(null); setTitle(''); setMessage(''); setPassword(''); setUsePassword(false);
-    setMaxDownloads(''); setNotify(false); setRecipients([]); setLinkOverride({}); setPhase('pick');
   }
 
-  async function send() {
-    setPhase('uploading');
-    try {
-      const share = await api.post<{ id: string; uploadToken: string; chunkSize: number; parallel: number }>('/api/shares', {
-        title: title || null,
-        message: message || null,
-        visibility,
-        expiryHours: expiry,
-        password: usePassword && password ? password : null,
-        maxDownloads: maxDownloads ? Number(maxDownloads) : null,
-        notifyOnDownload: notify,
-        linkOverride: Object.keys(linkOverride).length ? linkOverride : null,
-        files: items.map((i) => ({ name: i.file.name, size: i.file.size })),
-      });
-      const update = (id: string, patch: Partial<UploadItem>) => setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
-      setParallel(share.parallel || 4);
-      useChunkLane.getState().clear();
-      await uploadAll(items, share.uploadToken, { parallel: share.parallel || 4 }, update, useChunkLane.getState().push);
-      const done = await api.post<ShareDTO>(`/api/shares/${share.id}/finalize`, { recipients });
-      setResult(done);
-      setPhase('done');
-      useApp.getState().refreshMe();
-    } catch (err) {
-      toast.error(errorMessage(err), { duration: 6000 });
-      setItems((prev) => prev.map((i) => ({ ...i, status: 'queued', progress: 0 })));
-      setPhase('configure');
-    }
-  }
-
-  const overall = items.length ? items.reduce((s, i) => s + (i.progress / 100) * i.file.size, 0) / Math.max(1, total) * 100 : 0;
+  const overall = batchProgress(items);
 
   // ── Done ──
   if (phase === 'done' && result) {
@@ -110,7 +78,7 @@ export default function UploadPage() {
           {result.fileCount} fichier{result.fileCount > 1 ? 's' : ''} · {formatBytes(result.totalSize)} ·{' '}
           {result.visibility === 'public' ? 'public' : 'privé, réservé aux comptes'}
           {result.expiresAt ? ` · expire le ${new Date(result.expiresAt).toLocaleDateString('fr-FR')}` : ' · sans expiration'}
-          {recipients.length > 0 && ` · envoyé par e-mail à ${recipients.length} destinataire${recipients.length > 1 ? 's' : ''}`}
+          {t.sentTo > 0 && ` · envoyé par e-mail à ${t.sentTo} destinataire${t.sentTo > 1 ? 's' : ''}`}
         </p>
         <CopyLink url={url} size="lg" className="mt-8" />
         <div className="mt-6 flex flex-wrap gap-3">
@@ -169,7 +137,7 @@ export default function UploadPage() {
                 {i.status === 'uploading' && <ChunkBar item={i} />}
               </div>
               {i.status === 'done' ? <Check className="size-5 text-success" strokeWidth={3} /> : !busy && (
-                <button onClick={() => setItems(items.filter((x) => x.id !== i.id))} className="text-ink-3 hover:text-danger" aria-label="Retirer"><X className="size-5" /></button>
+                <button onClick={() => t.removeItem(i.id)} className="text-ink-3 hover:text-danger" aria-label="Retirer"><X className="size-5" /></button>
               )}
             </li>
           ))}
