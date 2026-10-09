@@ -22,7 +22,8 @@ meRouter.patch('/', ah(async (req, res) => {
   }).parse(req.body);
   const user = req.user!;
   const patch: Partial<UserRow> = {};
-  if (b.displayName !== undefined) patch.display_name = b.displayName.trim();
+  // Obligate accounts: the name comes from Obligate at every sign-in.
+  if (b.displayName !== undefined && user.auth_provider !== 'obligate') patch.display_name = b.displayName.trim();
   if (b.uploadParallel !== undefined) patch.upload_parallel = b.uploadParallel;
   if (b.vanity !== undefined) {
     const policies = await linkPolicies(user);
@@ -35,6 +36,7 @@ meRouter.patch('/', ah(async (req, res) => {
     }
     patch.vanity = v;
   }
+  if (!Object.keys(patch).length) return res.json(await toMe(user));
   const [row] = await db<UserRow>('users').where({ id: user.id }).update(patch).returning('*');
   res.json(await toMe(row));
 }));

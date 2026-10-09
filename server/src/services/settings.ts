@@ -46,6 +46,16 @@ export const DEFAULT_SETTINGS: SettingsMap = {
       allowedGroups: [],
       defaultProfileId: null,
     },
+    obligate: {
+      enabled: false,
+      url: '',
+      apiKey: '',
+      inboundSecret: '',
+      buttonLabel: 'Se connecter avec Obligate',
+      autoRedirect: false,
+      autoCreate: true,
+      defaultProfileId: null,
+    },
     registration: {
       mode: 'disabled',
       allowedDomains: [],
@@ -68,7 +78,7 @@ export const DEFAULT_SETTINGS: SettingsMap = {
 
 /** Dotted paths of fields that are never sent back to the browser. */
 const SECRETS: Partial<Record<SettingsKey, string[]>> = {
-  auth: ['oidc.clientSecret'],
+  auth: ['oidc.clientSecret', 'obligate.apiKey', 'obligate.inboundSecret'],
   mail: ['smtp.pass', 'graph.clientSecret'],
   storage: ['s3.secretAccessKey'],
 };

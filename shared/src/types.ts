@@ -52,6 +52,23 @@ export interface OidcSettings {
   defaultProfileId: string | null;
 }
 
+/** Obligate (Obli* suite SSO): hub-and-spoke OAuth, Obligate decides who signs in and with which role. */
+export interface ObligateSettings {
+  enabled: boolean;
+  /** Public URL of Obligate, e.g. https://gate.example.com */
+  url: string;
+  /** Server secret given by Obligate (Connected Apps). Never sent to browsers. */
+  apiKey: string;
+  /** Optional secret Obligate presents when it calls Ferry (else the API key). */
+  inboundSecret: string;
+  buttonLabel: string;
+  /** Send the login page straight to Obligate (local login stays reachable after a failure). */
+  autoRedirect: boolean;
+  autoCreate: boolean;
+  /** Profile given to accounts created through Obligate (null = default profile / global). */
+  defaultProfileId: string | null;
+}
+
 export type RegistrationMode = 'disabled' | 'open' | 'email' | 'approval' | 'email_approval';
 
 export interface RegistrationSettings {
@@ -65,6 +82,7 @@ export interface RegistrationSettings {
 export interface AuthSettings {
   localLogin: boolean;
   oidc: OidcSettings;
+  obligate: ObligateSettings;
   registration: RegistrationSettings;
 }
 
@@ -156,10 +174,26 @@ export interface EffectiveLimits {
 
 // ── API DTOs ─────────────────────────────────────────────────────────────────
 
+export type AuthProvider = 'local' | 'oidc' | 'obligate';
+
+/** One app of the Obli* suite, as Obligate lists it for the app switcher. */
+export interface ConnectedApp {
+  appType: string;
+  name: string;
+  baseUrl: string;
+  icon: string | null;
+  color: string | null;
+  /** This very instance. */
+  self?: boolean;
+  /** Not an Obli* app (shown under "More…"). */
+  thirdParty?: boolean;
+}
+
 export interface PublicConfig {
   branding: BrandingSettings;
   localLogin: boolean;
   oidc: { enabled: boolean; buttonLabel: string };
+  obligate: { enabled: boolean; buttonLabel: string; autoRedirect: boolean };
   /** Self-registration open on the login page (invites work regardless). */
   registration: { enabled: boolean; requiresEmail: boolean; requiresApproval: boolean; allowedDomains: string[] };
   /** A mail provider is configured: links can be sent by e-mail. */
@@ -173,7 +207,7 @@ export interface Me {
   displayName: string;
   email: string | null;
   role: Role;
-  authProvider: 'local' | 'oidc';
+  authProvider: AuthProvider;
   userCode: string;
   vanity: string | null;
   linkPrefs: UserLinkPrefs;
@@ -278,7 +312,7 @@ export interface AdminUser {
   displayName: string;
   email: string | null;
   role: Role;
-  authProvider: 'local' | 'oidc';
+  authProvider: AuthProvider;
   disabled: boolean;
   emailVerified: boolean;
   pendingApproval: boolean;

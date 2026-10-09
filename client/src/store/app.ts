@@ -38,7 +38,9 @@ export const useApp = create<AppState>((set, get) => ({
     set({ config });
   },
   async logout() {
-    await api.post('/api/auth/logout');
+    const r = await api.post<{ redirect?: string | null }>('/api/auth/logout');
     set({ me: null });
+    // Obligate accounts also sign out of Obligate, which sends them back to our login page.
+    if (r?.redirect) window.location.href = r.redirect;
   },
 }));

@@ -212,6 +212,16 @@ const migrations: Migration[] = [
       await knex.schema.alterTable('users', (t) => { t.dropColumn('upload_parallel'); });
     },
   },
+  {
+    name: '005_obligate',
+    async up(knex) {
+      // Obligate user id of accounts provisioned through Obligate SSO (og_ accounts).
+      await knex.schema.alterTable('users', (t) => { t.integer('obligate_id').unique(); });
+    },
+    async down(knex) {
+      await knex.schema.alterTable('users', (t) => { t.dropColumn('obligate_id'); });
+    },
+  },
 ];
 
 export const migrationSource: Knex.MigrationSource<Migration> = {

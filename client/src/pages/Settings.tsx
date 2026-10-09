@@ -5,6 +5,7 @@ import { Download, KeyRound, Link2, Plus, Terminal, Trash2, User } from 'lucide-
 import toast from 'react-hot-toast';
 import { LINK_SOURCES, type LinkSource, type Me, type UserLinkPrefs } from '@ferry/shared';
 import { api, errorMessage } from '@/api/client';
+import { displayHandle } from '@/lib/handle';
 import { useApp } from '@/store/app';
 import { dateTime, formatBytes, relative } from '@/lib/format';
 import { Badge, Button, Confirm, CopyLink, Empty, Field, IconButton, Input, Modal, SectionTitle, Segmented, Select, Toggle } from '@/components/ui';
@@ -78,8 +79,8 @@ function ProfileTab({ me }: { me: Me }) {
     <div className="space-y-6">
       <Panel title="Profil" footer={<Button variant="accent" loading={saving} onClick={save}>Enregistrer</Button>}>
         <div className="grid gap-5 sm:grid-cols-2">
-          <Field label="Nom affiché"><Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} /></Field>
-          <Field label="Identifiant" hint={me.authProvider === 'oidc' ? 'Compte Microsoft Entra ID' : 'Modifiable par un administrateur'}><Input value={me.username} disabled /></Field>
+          <Field label="Nom affiché" hint={me.authProvider === 'obligate' ? 'Géré par Obligate' : undefined}><Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} disabled={me.authProvider === 'obligate'} /></Field>
+          <Field label="Identifiant" hint={me.authProvider === 'oidc' ? 'Compte Microsoft Entra ID' : me.authProvider === 'obligate' ? 'Compte Obligate (SSO)' : 'Modifiable par un administrateur'}><Input value={displayHandle(me.username)} disabled /></Field>
           <Field label="Code personnel" hint="Utilisé quand le préfixe est « Code perso »."><Input value={me.userCode} disabled className="font-mono" /></Field>
           <Field label="Alias" hint={vanityAllowed ? 'Préfixe personnalisé de vos liens (ex. compta).' : 'Désactivé par l’administrateur.'}>
             <Input value={vanity} disabled={!vanityAllowed} onChange={(e) => setVanity(e.target.value.toLowerCase())} placeholder="—" className="font-mono" />

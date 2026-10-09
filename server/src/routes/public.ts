@@ -25,6 +25,11 @@ publicRouter.get('/config', ah(async (_req, res) => {
     branding,
     localLogin: auth.localLogin,
     oidc: { enabled: auth.oidc.enabled && !!auth.oidc.clientId, buttonLabel: auth.oidc.buttonLabel },
+    obligate: {
+      enabled: auth.obligate.enabled && !!auth.obligate.url && !!auth.obligate.apiKey,
+      buttonLabel: auth.obligate.buttonLabel,
+      autoRedirect: auth.obligate.autoRedirect,
+    },
     mailEnabled: mail.provider !== 'none',
     registration: {
       enabled: auth.registration.mode !== 'disabled' && auth.localLogin,

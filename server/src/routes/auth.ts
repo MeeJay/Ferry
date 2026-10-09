@@ -11,6 +11,7 @@ import { findInvite, notifyAdminsPending, sendVerification } from '../services/r
 import { hashToken } from '../middleware/auth.js';
 import { HttpError } from '../services/shares.js';
 import { audit } from '../services/audit.js';
+import { obligateBase, obligateReady, obligateSettings } from '../services/obligate.js';
 import { ah, baseUrl } from '../utils/http.js';
 
 export const authApi = Router();
@@ -18,7 +19,7 @@ export const authRedirects = Router();
 
 const loginLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: true, legacyHeaders: false });
 
-function establishSession(req: Request, userId: string): Promise<void> {
+export function establishSession(req: Request, userId: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const unlocked = req.session.unlocked;
     req.session.regenerate((err) => {
@@ -31,7 +32,7 @@ function establishSession(req: Request, userId: string): Promise<void> {
 }
 
 /** Only same-site relative paths are accepted as post-login destinations. */
-function safeNext(next: unknown): string {
+export function safeNext(next: unknown): string {
   return typeof next === 'string' && /^\/(?![/\\])/.test(next) ? next : '/';
 }
 
@@ -162,9 +163,15 @@ authApi.post('/resend-verification', emailLinkLimiter, ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
-authApi.post('/logout', (req, res) => {
-  req.session.destroy(() => res.json({ ok: true }));
-});
+authApi.post('/logout', ah(async (req, res) => {
+  // Obligate accounts also leave the Obligate session, then come back to our login page.
+  let redirect: string | null = null;
+  if (req.user?.auth_provider === 'obligate') {
+    const s = await obligateSettings();
+    if (obligateReady(s)) redirect = `${obligateBase(s)}/logout?redirect_uri=${encodeURIComponent(`${baseUrl(req)}/login`)}`;
+  }
+  req.session.destroy(() => res.json({ ok: true, redirect }));
+}));
 
 // ── Entra ID ───────────────────────────────────────────────────────────────
 

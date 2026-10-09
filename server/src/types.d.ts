@@ -16,6 +16,7 @@ declare module 'express-session' {
     /** Share / request ids whose password was entered in this browser session. */
     unlocked?: string[];
     oidc?: { state: string; nonce: string; verifier: string; next: string };
+    obligate?: { state: string; redirectUri: string; next: string };
   }
 }
 

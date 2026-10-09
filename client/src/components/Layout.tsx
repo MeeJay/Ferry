@@ -8,6 +8,8 @@ import { formatBytes } from '@ferry/shared';
 import { useApp } from '@/store/app';
 import { useTheme } from '@/lib/theme';
 import { TransferDock, TransferPill, useTransferGuards } from './TransferDock';
+import { SuiteApps } from './SuiteApps';
+import { displayHandle } from '@/lib/handle';
 
 /** Ferry mark: a sail over a wave, on the accent gradient. */
 export function Mark({ className }: { className?: string }) {
@@ -114,6 +116,8 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         )}
       </nav>
 
+      <SuiteApps onNavigate={onNavigate} />
+
       <div className="mt-auto space-y-3">
         <TransferDock onNavigate={onNavigate} />
         <div className="rounded-md bg-surface-2/50 p-4">
@@ -132,7 +136,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-grad text-[13px] font-bold text-white glow">{initials(me.displayName)}</span>
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-semibold">{me.displayName}</div>
-              <div className="truncate font-mono text-xs text-ink-3">@{me.username}</div>
+              <div className="truncate font-mono text-xs text-ink-3">@{displayHandle(me.username)}</div>
             </div>
           </Link>
           {me.limits.sharexEnabled && (

@@ -5,6 +5,7 @@ import { bootstrap } from './db/bootstrap.js';
 import { ensureDirs } from './services/storage.js';
 import { startCleanupLoop } from './services/cleanup.js';
 import { createApp } from './app.js';
+import { announceSelfInfo } from './services/obligate.js';
 
 async function main() {
   await ensureDirs();
@@ -15,6 +16,8 @@ async function main() {
   server.requestTimeout = 0;
   server.headersTimeout = 65_000;
   startCleanupLoop();
+  // Our accent color in the suite's app switchers (no-op until Obligate is configured).
+  void announceSelfInfo();
 
   const shutdown = () => {
     logger.info('shutting down');

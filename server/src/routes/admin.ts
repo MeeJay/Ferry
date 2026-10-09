@@ -17,6 +17,7 @@ import { hashToken } from '../middleware/auth.js';
 import { DEFAULT_MAIL_TEMPLATES, MAIL_VARIABLES, SAMPLE_VARS, renderEvent } from '../services/mailTemplates.js';
 import { testS3 } from '../services/storage.js';
 import { audit } from '../services/audit.js';
+import { announceSelfInfo, obligateBase, obligateClientId, obligateReachable } from '../services/obligate.js';
 import { absoluteUrl, ah, baseUrl } from '../utils/http.js';
 import { policyLayerSchema, uuid } from '../utils/schemas.js';
 
@@ -146,6 +147,18 @@ adminRouter.patch('/users/:id', ah(async (req, res) => {
   const user = await db<UserRow>('users').where({ id }).first();
   if (!user) throw new HttpError(404, 'Utilisateur introuvable');
   if (id === req.user!.id && (b.role === 'user' || b.disabled)) throw new HttpError(400, 'Vous ne pouvez pas vous retirer vos propres droits');
+  if (user.auth_provider === 'obligate') {
+    // Identity, role and status come from Obligate at every sign-in: only the quota profile is Ferry's.
+    const changed = [
+      b.username !== undefined && b.username.toLowerCase().trim() !== user.username,
+      b.displayName !== undefined && b.displayName.trim() !== user.display_name,
+      b.email !== undefined && (b.email || null) !== user.email,
+      b.role !== undefined && b.role !== user.role,
+      b.disabled !== undefined && b.disabled !== user.disabled,
+      !!b.password,
+    ];
+    if (changed.some(Boolean)) throw new HttpError(400, 'Compte géré par Obligate : identité, rôle et statut se modifient dans Obligate');
+  }
   const patch: Partial<UserRow> = {};
   if (b.username !== undefined && b.username !== user.username) {
     const username = b.username.toLowerCase().trim();
@@ -326,6 +339,14 @@ adminRouter.delete('/profiles/:id', ah(async (req, res) => {
 // ── Settings ───────────────────────────────────────────────────────────────
 
 const mailEventSchema = z.object({ subject: z.string().max(300), heading: z.string().max(300), body: z.string().max(5000), button: z.string().max(80) });
+const obligateSchema = z.object({
+  enabled: z.boolean(),
+  url: z.string().trim().max(300).refine((v) => !v || /^https?:\/\/[^/\s]+/i.test(v), 'URL invalide (http:// ou https://)').transform((v) => v.replace(/\/+$/, '')),
+  apiKey: z.string().max(500), inboundSecret: z.string().max(500),
+  buttonLabel: z.string().max(60), autoRedirect: z.boolean(), autoCreate: z.boolean(),
+  defaultProfileId: z.string().uuid().nullable(),
+});
+
 const mailTemplatesSchema = z.object({
   theme: z.enum(MAIL_THEMES as [MailTheme, ...MailTheme[]]),
   showLogo: z.boolean(),
@@ -355,6 +376,7 @@ const settingSchemas: Record<SettingsKey, z.ZodTypeAny> = {
       buttonLabel: z.string().max(60), autoCreate: z.boolean(), adminGroups: z.array(z.string()), allowedGroups: z.array(z.string()),
       defaultProfileId: z.string().uuid().nullable(),
     }),
+    obligate: obligateSchema,
     registration: z.object({
       mode: z.enum(['disabled', 'open', 'email', 'approval', 'email_approval']),
       allowedDomains: z.array(z.string().trim().toLowerCase().regex(/^[a-z0-9.-]+\.[a-z]{2,}$/, 'Domaine invalide')).max(50),
@@ -391,7 +413,7 @@ adminRouter.put('/settings/:key', ah(async (req, res) => {
   const key = req.params.key as SettingsKey;
   if (!settingSchemas[key]) throw new HttpError(404, 'Réglage inconnu');
   const value = settingSchemas[key].parse(req.body);
-  if (key === 'auth' && !value.localLogin && !value.oidc.enabled) throw new HttpError(400, 'Au moins un mode de connexion doit rester actif');
+  if (key === 'auth' && !value.localLogin && !value.oidc.enabled && !value.obligate.enabled) throw new HttpError(400, 'Au moins un mode de connexion doit rester actif');
   if (key === 'storage' && value.driver === 's3') {
     const current = await getSetting('storage');
     const s3 = { ...value.s3, secretAccessKey: value.s3.secretAccessKey.startsWith('•') ? current.s3.secretAccessKey : value.s3.secretAccessKey };
@@ -399,12 +421,33 @@ adminRouter.put('/settings/:key', ah(async (req, res) => {
   }
   const saved = await setSetting(key, value);
   audit(req, 'settings.updated', key);
+  if (key === 'auth' || key === 'branding') void announceSelfInfo();
   res.json(maskSecrets(key, saved));
 }));
 
 const eventKey = z.enum(MAIL_EVENTS as [MailEventKey, ...MailEventKey[]]);
 
 /** Sends a sample of one event to check delivery and look (uses the saved settings). */
+/** Checks the (possibly unsaved) Obligate settings: reachable, API key accepted, redirect URI to register. */
+adminRouter.post('/settings/obligate/test', ah(async (req, res) => {
+  const { settings } = z.object({ settings: settingSchemas.auth }).parse(req.body);
+  const s = (await withStoredSecrets('auth', settings)).obligate;
+  if (!s.url) throw new HttpError(400, 'Renseignez l’URL d’Obligate');
+  const reachable = await obligateReachable(s);
+  let keyAccepted: boolean | null = null;
+  if (reachable && s.apiKey) {
+    try {
+      const r = await fetch(`${obligateBase(s)}/api/apps/connected`, { headers: { Authorization: `Bearer ${s.apiKey}` }, signal: AbortSignal.timeout(5000) });
+      keyAccepted = r.ok;
+    } catch { keyAccepted = false; }
+  }
+  res.json({
+    reachable, keyAccepted,
+    clientId: s.apiKey ? obligateClientId(s.apiKey) : null,
+    baseUrl: baseUrl(req), callbackUrl: `${baseUrl(req)}/auth/callback`,
+  });
+}));
+
 adminRouter.post('/settings/mail/test', ah(async (req, res) => {
   const { to, event, settings } = z.object({
     to: z.string().email(),

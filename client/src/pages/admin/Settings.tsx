@@ -257,6 +257,7 @@ function Auth({ value, onSaved }: { value: SettingsMap['auth']; onSaved: (v: Set
   const list = (s: string) => s.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);
   return (
     <>
+      <ObligatePanel draft={draft} onChange={(ob) => setDraft({ ...draft, obligate: ob })} footer={footer} />
       <Panel title="Microsoft Entra ID" footer={footer}
         description="Enregistrez une application dans Entra ID (Inscriptions d’applications), type Web, avec l’URI de redirection ci-dessous et un secret client. Pour le mapping des groupes, ajoutez la revendication « groups » (ID de sécurité) dans « Configuration du jeton ».">
         <div className="space-y-5">
@@ -290,6 +291,60 @@ function Auth({ value, onSaved }: { value: SettingsMap['auth']; onSaved: (v: Set
       </Panel>
       <Registration value={draft.registration} localLogin={draft.localLogin} onChange={(r) => setDraft({ ...draft, registration: r })} footer={footer} />
     </>
+  );
+}
+
+interface ObligateTest { reachable: boolean; keyAccepted: boolean | null; clientId: string | null; baseUrl: string; callbackUrl: string }
+
+/** Obligate (SSO of the Obli* suite): Ferry is registered there as a connected app. */
+function ObligatePanel({ draft, onChange, footer }: { draft: SettingsMap['auth']; onChange: (v: SettingsMap['auth']['obligate']) => void; footer: ReactNode }) {
+  const ob = draft.obligate;
+  const set = <K extends keyof typeof ob>(k: K, v: (typeof ob)[K]) => onChange({ ...ob, [k]: v });
+  const [testing, setTesting] = useState(false);
+  const [test, setTest] = useState<ObligateTest | null>(null);
+  const origin = window.location.origin;
+
+  async function runTest() {
+    setTesting(true);
+    try { setTest(await api.post<ObligateTest>('/api/admin/settings/obligate/test', { settings: draft })); }
+    catch (err) { toast.error(errorMessage(err)); setTest(null); } finally { setTesting(false); }
+  }
+
+  return (
+    <Panel title="Obligate (SSO de la suite Obli)" footer={footer}
+      description="Dans Obligate → Connected Apps, ajoutez Ferry (type « ferry », Base URL ci-dessous, rangé dans « More… »), copiez la clé API, puis mappez un groupe de permission vers Ferry avec le rôle « admin » ou « user ».">
+      <div className="space-y-5">
+        <Toggle checked={ob.enabled} onChange={(v) => set('enabled', v)} label="Activer la connexion Obligate"
+          description="Les comptes Obligate sont créés en og_… et restent gérés par Obligate (identité, rôle, statut)." />
+        <Field label="Base URL à déclarer dans Obligate">
+          <div className="flex gap-2"><Input readOnly value={origin} className="font-mono text-xs" /><Button icon={<Copy className="size-4" />} onClick={() => copyText(origin, 'URL copiée')} /></div>
+        </Field>
+        <div className="grid gap-5 sm:grid-cols-2">
+          <Field label="URL d’Obligate" hint="Ex. https://gate.exemple.fr"><Input value={ob.url} onChange={(e) => set('url', e.target.value.trim())} className="font-mono text-xs" placeholder="https://" /></Field>
+          <Field label="Clé API" hint="Affichée une seule fois par Obligate. Reste côté serveur."><Input type="password" value={ob.apiKey} onChange={(e) => set('apiKey', e.target.value.trim())} autoComplete="off" /></Field>
+          <Field label="Inbound secret" hint="Optionnel : ce qu’Obligate présente quand il appelle Ferry (sinon la clé API)."><Input type="password" value={ob.inboundSecret} onChange={(e) => set('inboundSecret', e.target.value.trim())} autoComplete="off" /></Field>
+          <Field label="Libellé du bouton"><Input value={ob.buttonLabel} onChange={(e) => set('buttonLabel', e.target.value)} /></Field>
+        </div>
+        <Toggle checked={ob.autoRedirect} onChange={(v) => set('autoRedirect', v)} label="Rediriger directement vers Obligate"
+          description="La page de connexion part vers Obligate s’il répond. Connexion locale de secours : /login?local=1" />
+        <Toggle checked={ob.autoCreate} onChange={(v) => set('autoCreate', v)} label="Créer les comptes à la première connexion" />
+        <Field label="Profil des nouveaux comptes Obligate" hint="Attribué à la création (Admin → Profils).">
+          <ProfileSelect value={ob.defaultProfileId} onChange={(v) => set('defaultProfileId', v)} />
+        </Field>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button loading={testing} disabled={!ob.url} onClick={runTest}>Tester la connexion</Button>
+          {test && (
+            <div className="flex flex-wrap gap-2 text-xs font-semibold">
+              <span className={test.reachable ? 'text-success' : 'text-danger'}>{test.reachable ? '✓ Obligate répond' : '✗ Obligate injoignable'}</span>
+              {test.keyAccepted !== null && <span className={test.keyAccepted ? 'text-success' : 'text-danger'}>{test.keyAccepted ? '✓ Clé API acceptée' : '✗ Clé API refusée'}</span>}
+            </div>
+          )}
+        </div>
+        {test?.clientId && (
+          <p className="text-xs text-ink-3">client_id public (SHA-256 de la clé) : <span className="font-mono break-all">{test.clientId}</span></p>
+        )}
+      </div>
+    </Panel>
   );
 }
 

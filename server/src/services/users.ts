@@ -13,8 +13,9 @@ export interface UserRow {
   email: string | null;
   password_hash: string | null;
   role: 'admin' | 'user';
-  auth_provider: 'local' | 'oidc';
+  auth_provider: 'local' | 'oidc' | 'obligate';
   oidc_sub: string | null;
+  obligate_id: number | null;
   user_code: string;
   vanity: string | null;
   quota_profile_id: string | null;

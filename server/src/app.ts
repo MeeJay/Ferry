@@ -5,6 +5,7 @@ import helmet from 'helmet';
 import { config } from './config.js';
 import { csrfGuard, loadUser } from './middleware/auth.js';
 import { authApi, authRedirects } from './routes/auth.js';
+import { obligateApi, obligateRedirects } from './routes/obligate.js';
 import { publicRouter } from './routes/public.js';
 import { sharesRouter } from './routes/shares.js';
 import { requestsRouter } from './routes/requests.js';
@@ -61,9 +62,12 @@ export function createApp() {
     setHeaders: (res) => res.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox"),
   }));
   app.use('/auth', authRedirects);
+  app.use('/auth', obligateRedirects);
 
   // ShareX first: token-authenticated, multipart, exempt from the CSRF header.
   app.use('/api/sharex', sharexRouter);
+  // Obligate calls these server to server (Bearer), without the CSRF header.
+  app.use('/api/auth', obligateApi);
   app.use('/api', csrfGuard);
   app.use('/api/auth', authApi);
   app.use('/api/public', publicRouter);

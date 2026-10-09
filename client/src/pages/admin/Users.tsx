@@ -4,6 +4,7 @@ import { Check, Mail, Pencil, Plus, Trash2, UserPlus, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { AdminUser, InviteDTO, QuotaProfile } from '@ferry/shared';
 import { api, errorMessage } from '@/api/client';
+import { displayHandle } from '@/lib/handle';
 import { useApp } from '@/store/app';
 import { formatBytes, relative } from '@/lib/format';
 import { Badge, Button, Confirm, CopyLink, Empty, Field, IconButton, Input, Modal, PageLoader, SectionTitle, Select, Segmented, Textarea, Toggle } from '@/components/ui';
@@ -77,8 +78,9 @@ export default function AdminUsers() {
                   <td className="px-4 py-3">
                     <div className="font-semibold">{u.displayName}</div>
                     <div className="flex flex-wrap items-center gap-1.5 text-xs text-ink-3">
-                      <span className="font-mono">@{u.username}</span>
+                      <span className="font-mono">@{displayHandle(u.username)}</span>
                       {u.authProvider === 'oidc' && <Badge>Entra ID</Badge>}
+                      {u.authProvider === 'obligate' && <Badge tone="accent">SSO Obligate</Badge>}
                       {u.disabled && <Badge tone="danger">Désactivé</Badge>}
                       {!u.emailVerified && <Badge tone="warn">E-mail non confirmé</Badge>}
                       {u.pendingApproval && <Badge tone="accent">À valider</Badge>}
@@ -215,6 +217,8 @@ function UserModal({ user, profiles, onClose, onSaved }: { user: AdminUser | nul
   const [disabled, setDisabled] = useState(user?.disabled ?? false);
   const [saving, setSaving] = useState(false);
   const local = !user || user.authProvider === 'local';
+  /** Identity, role and status follow Obligate: only the quota profile is set here. */
+  const managed = user?.authProvider === 'obligate';
 
   async function save() {
     setSaving(true);
@@ -231,18 +235,19 @@ function UserModal({ user, profiles, onClose, onSaved }: { user: AdminUser | nul
     <Modal open onClose={onClose} title={user ? user.displayName : 'Nouveau compte local'}
       footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button variant="accent" loading={saving} disabled={!username || !displayName || (!user && password.length < 8)} icon={user ? undefined : <Plus className="size-4" />} onClick={save}>{user ? 'Enregistrer' : 'Créer'}</Button></>}>
       <div className="grid gap-5 sm:grid-cols-2">
-        <Field label="Identifiant" hint="Sert aussi de préfixe de lien."><Input value={username} onChange={(e) => setUsername(e.target.value.toLowerCase())} className="font-mono" /></Field>
-        <Field label="Nom affiché"><Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} /></Field>
+        {managed && <div className="sm:col-span-2 rounded-md bg-accent/10 px-4 py-3 text-sm text-ink-2">Compte géré par <b>Obligate</b> : identité, rôle et statut s’y modifient et sont resynchronisés à chaque connexion. Seul le profil de quotas se règle ici.</div>}
+        <Field label="Identifiant" hint="Sert aussi de préfixe de lien."><Input value={username} onChange={(e) => setUsername(e.target.value.toLowerCase())} className="font-mono" disabled={managed} /></Field>
+        <Field label="Nom affiché"><Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} disabled={managed} /></Field>
         <Field label="E-mail" className="sm:col-span-2"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} disabled={!local} /></Field>
         {local && <Field label={user ? 'Nouveau mot de passe' : 'Mot de passe'} hint={user ? 'Laisser vide pour ne pas changer' : '8 caractères minimum'} className="sm:col-span-2"><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" /></Field>}
-        <Field label="Rôle"><Segmented value={role} onChange={setRole} options={[{ value: 'user', label: 'Utilisateur' }, { value: 'admin', label: 'Admin' }]} /></Field>
+        <Field label="Rôle"><Segmented value={role} onChange={setRole} disabled={managed} options={[{ value: 'user', label: 'Utilisateur' }, { value: 'admin', label: 'Admin' }]} /></Field>
         <Field label="Profil de quotas" hint={user?.authProvider === 'oidc' ? 'Peut être réécrit par le mapping des groupes Entra.' : undefined}>
           <Select value={profile} onChange={(e) => setProfile(e.target.value)}>
             <option value="">{profiles.find((p) => p.isDefault) ? `Par défaut (${profiles.find((p) => p.isDefault)!.name})` : 'Réglages globaux'}</option>
             {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </Select>
         </Field>
-        {user && <div className="sm:col-span-2"><Toggle checked={disabled} onChange={setDisabled} label="Compte désactivé" description="Bloque la connexion et l’API. Les liens existants restent actifs." /></div>}
+        {user && !managed && <div className="sm:col-span-2"><Toggle checked={disabled} onChange={setDisabled} label="Compte désactivé" description="Bloque la connexion et l’API. Les liens existants restent actifs." /></div>}
       </div>
     </Modal>
   );

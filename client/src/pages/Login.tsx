@@ -1,6 +1,6 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Link, Navigate, useSearchParams, useNavigate } from 'react-router-dom';
-import { ArrowRight, Check, Copy, FileText, Image as ImageIcon, Lock } from 'lucide-react';
+import { ArrowRight, Check, Copy, FileText, Image as ImageIcon, Lock, ShieldCheck } from 'lucide-react';
 import type { Me } from '@ferry/shared';
 import { api, ApiError, errorMessage } from '@/api/client';
 import { useApp } from '@/store/app';
@@ -16,7 +16,13 @@ const ERRORS: Record<string, string> = {
   sso_forbidden: 'Votre compte n’appartient à aucun groupe autorisé.',
   sso_no_account: 'Aucun compte Ferry n’est associé à cet utilisateur.',
   account_disabled: 'Ce compte est désactivé.',
+  obligate_failed: 'La connexion via Obligate a échoué (accès refusé ou configuration).',
+  obligate_unreachable: 'Obligate ne répond pas : utilisez la connexion locale ou réessayez plus tard.',
 };
+
+/** Anti-loop: no automatic Obligate redirect within this delay of the previous one. */
+const AUTO_REDIRECT_COOLDOWN_MS = 15_000;
+const AUTO_REDIRECT_KEY = 'ferry.obligateRedirectAt';
 
 function MicrosoftLogo() {
   return (
@@ -38,10 +44,30 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [errorCode, setErrorCode] = useState<string | undefined>();
   const [resent, setResent] = useState(false);
+  const [redirecting, setRedirecting] = useState(false);
+  const ssoUrl = `/auth/sso-redirect?next=${encodeURIComponent(next)}`;
+
+  // Obligate auto-redirect: only when Obligate answers, never after a failure or a recent attempt.
+  useEffect(() => {
+    if (me || !config?.obligate.enabled || !config.obligate.autoRedirect || params.get('error') || params.get('local')) return;
+    let last = 0;
+    try { last = Number(sessionStorage.getItem(AUTO_REDIRECT_KEY) || 0); } catch { /* storage blocked */ }
+    if (Date.now() - last < AUTO_REDIRECT_COOLDOWN_MS) return;
+    let cancelled = false;
+    setRedirecting(true);
+    api.get<{ reachable: boolean }>('/api/auth/sso-config').then((r) => {
+      if (cancelled) return;
+      if (!r.reachable) { setRedirecting(false); return; }
+      try { sessionStorage.setItem(AUTO_REDIRECT_KEY, String(Date.now())); } catch { /* storage blocked */ }
+      window.location.href = ssoUrl;
+    }).catch(() => !cancelled && setRedirecting(false));
+    return () => { cancelled = true; };
+  }, [me, config, params, ssoUrl]);
 
   if (me) return <Navigate to={next} replace />;
   if (!config) return null;
-  const { branding, oidc, localLogin } = config;
+  const { branding, oidc, obligate, localLogin } = config;
+  const sso = oidc.enabled || obligate.enabled;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -91,13 +117,20 @@ export default function LoginPage() {
 
             {error && <div className="mt-6 rounded-md bg-danger/10 px-4 py-3 text-sm font-semibold text-danger">{error}</div>}
 
+            {redirecting && <div className="mt-6 rounded-md bg-accent/10 px-4 py-3 text-sm font-semibold text-accent">Redirection vers Obligate…</div>}
+
             <div className="mt-8 space-y-5">
+              {obligate.enabled && (
+                <a href={ssoUrl} className={buttonClasses(localLogin || oidc.enabled ? 'ink' : 'accent', 'lg', 'w-full')}>
+                  <ShieldCheck className="size-5" />{obligate.buttonLabel}
+                </a>
+              )}
               {oidc.enabled && (
                 <a href={`/auth/oidc/login?next=${encodeURIComponent(next)}`} className={buttonClasses(localLogin ? 'ink' : 'accent', 'lg', 'w-full')}>
                   <MicrosoftLogo />{oidc.buttonLabel}
                 </a>
               )}
-              {oidc.enabled && localLogin && (
+              {sso && localLogin && (
                 <div className="flex items-center gap-3 text-xs font-semibold uppercase tracking-widest text-ink-3">
                   <span className="h-px flex-1 bg-line" />ou<span className="h-px flex-1 bg-line" />
                 </div>
