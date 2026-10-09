@@ -1,8 +1,9 @@
 // Parallel chunked uploader (server side: server/src/routes/chunks.ts).
 //
-// Every file gets a session; its chunks go into one queue shared by
-// `parallel` workers, so a single big file uses every worker and a batch of
-// small files is sent several at a time. Each chunk is retried on its own.
+// Every file gets a session; its chunks go into one queue drained by up to
+// `parallel` concurrent PUTs, so a single big file uses every slot and a batch
+// of small files is sent several at a time. Each chunk is retried on its own.
+// parallel = 0 is "auto": the Pacer below finds the right number on the fly.
 
 export interface UploadItem {
   id: string;
@@ -68,10 +69,126 @@ function putChunk(url: string, token: string, blob: Blob, onProgress: (fraction:
   });
 }
 
+/** Let a new level settle (socket buffers fill in a burst) before measuring it. */
+const PACE_SETTLE_MS = 1500;
+const PACE_MEASURE_MS = 2500;
+/** A level must beat the previous one by this much to be kept. */
+const PACE_GAIN = 1.08;
+/** After finding the best level, stay there this long before probing again. */
+const PACE_HOLD_MS = 20000;
+/** While holding, a drop this deep means congestion: back off one level. */
+const PACE_DROP = 0.6;
+
+/**
+ * Adaptive chunks-in-flight, like TCP's slow start: begin with 1, add one while
+ * the aggregate throughput keeps rising, step back when it doesn't. Once the
+ * best level is found it is held, then re-checked now and then, one step up or
+ * one step down in turn, since network conditions change. Never above `max`.
+ */
+export class Pacer {
+  target = 1;
+  private sent = 0;
+  private changedAt = performance.now();
+  private windowAt = 0;
+  private windowBytes = 0;
+  private mode: 'up' | 'down' | 'hold' = 'up';
+  /** Throughput at the level we came from, while probing (bytes / ms). */
+  private ref = 0;
+  private holdUntil = 0;
+  /** Smoothed throughput while holding. */
+  private steady = 0;
+  private nextProbe: 'up' | 'down' = 'up';
+  /** First window of a level that looked like a step back: one more look before deciding. */
+  private doubt = 0;
+  private timer: ReturnType<typeof setInterval>;
+
+  constructor(private max: number, private onChange: (target: number) => void) {
+    this.timer = setInterval(() => this.tick(), 500);
+  }
+
+  add(bytes: number) { this.sent += bytes; }
+  stop() { clearInterval(this.timer); }
+
+  private set(target: number, now: number) {
+    target = Math.min(this.max, Math.max(1, target));
+    if (target === this.target) return;
+    this.target = target;
+    this.changedAt = now;
+    this.windowAt = 0;
+    this.doubt = 0;
+    this.onChange(target);
+  }
+
+  private hold(now: number, steady: number, target = this.target) {
+    this.mode = 'hold';
+    this.holdUntil = now + PACE_HOLD_MS;
+    this.steady = steady;
+    this.set(target, now);
+  }
+
+  private probe(dir: 'up' | 'down', now: number) {
+    this.mode = dir;
+    this.ref = this.steady;
+    this.set(this.target + (dir === 'up' ? 1 : -1), now);
+  }
+
+  private tick() {
+    const now = performance.now();
+    if (now - this.changedAt < PACE_SETTLE_MS) return;
+    if (!this.windowAt) { this.windowAt = now; this.windowBytes = this.sent; return; }
+    if (now - this.windowAt < PACE_MEASURE_MS) return;
+    const rate = (this.sent - this.windowBytes) / (now - this.windowAt);
+    this.windowAt = now;
+    this.windowBytes = this.sent;
+    if (rate <= 0) return; // stalled (retry back-off…): nothing to learn
+
+    switch (this.mode) {
+      case 'up': {
+        // Worth it: keep climbing. Not worth it (twice, windows are noisy): the level below was as good.
+        const best = Math.max(rate, this.doubt);
+        if (!this.ref || best > this.ref * PACE_GAIN) {
+          this.ref = best;
+          if (this.target < this.max) this.set(this.target + 1, now);
+          else this.hold(now, best);
+        } else if (!this.doubt) this.doubt = rate;
+        else this.hold(now, this.ref, this.target - 1);
+        return;
+      }
+      case 'down': {
+        // Clearly slower: go back. About as fast (twice): keep shedding.
+        if (rate * PACE_GAIN < this.ref) this.hold(now, this.ref, this.target + 1);
+        else if (!this.doubt) this.doubt = rate;
+        else {
+          this.ref = Math.min(rate, this.doubt);
+          if (this.target > 1) this.set(this.target - 1, now);
+          else this.hold(now, this.ref);
+        }
+        return;
+      }
+      case 'hold': {
+        if (this.steady && rate < this.steady * PACE_DROP && this.target > 1) {
+          // Sudden collapse (congestion): back off right away.
+          this.hold(now, 0, this.target - 1);
+          return;
+        }
+        this.steady = this.steady ? this.steady * 0.6 + rate * 0.4 : rate;
+        if (now < this.holdUntil) return;
+        const dir = this.nextProbe;
+        this.nextProbe = dir === 'up' ? 'down' : 'up';
+        if (dir === 'up' && this.target < this.max) this.probe('up', now);
+        else if (this.target > 1) this.probe('down', now);
+        else if (this.target < this.max) this.probe('up', now);
+        else this.holdUntil = now + PACE_HOLD_MS;
+      }
+    }
+  }
+}
+
 export async function uploadAll(
   items: UploadItem[],
   token: string,
-  opts: { parallel: number },
+  /** parallel: fixed chunks in flight, or 0 = auto up to `max`. */
+  opts: { parallel: number; max?: number; onParallel?: (n: number) => void },
   onUpdate: (id: string, patch: Partial<UploadItem>) => void,
   onChunk?: (e: ChunkEvent) => void,
 ): Promise<void> {
@@ -118,6 +235,9 @@ export async function uploadAll(
     } catch (err) { fail(item, (err as Error).message); }
   }
 
+  const pacer = opts.parallel > 0 ? null
+    : new Pacer(Math.max(1, opts.max ?? 1), (n) => { opts.onParallel?.(n); pump(); });
+
   async function sendWithRetry(itemId: string, index: number) {
     const st = state.get(itemId)!;
     const { session, item } = st;
@@ -128,8 +248,11 @@ export async function uploadAll(
     for (let attempt = 0; ; attempt++) {
       // Show the chunk in the lane as soon as it leaves, before its first progress event.
       onChunk?.({ key, itemId, index, count: session.count, bytes: blob.size, fraction: 0, done: false });
+      let sentBytes = 0;
       try {
         await putChunk(`/api/chunks/${session.id}/${index}`, token, blob, (fraction) => {
+          const loaded = fraction * blob.size;
+          if (loaded > sentBytes) { pacer?.add(loaded - sentBytes); sentBytes = loaded; }
           st.chunks[index] = fraction;
           emitItem(itemId);
           const now = performance.now();
@@ -148,20 +271,34 @@ export async function uploadAll(
     }
   }
 
-  async function worker() {
-    for (let task = queue.shift(); task; task = queue.shift()) {
-      const st = state.get(task.itemId)!;
-      if (st.failed) continue;
-      try {
-        await sendWithRetry(task.itemId, task.index);
-        if (--st.remaining === 0) await complete(task.itemId);
-      } catch (err) {
-        if (!st.failed) fail(st.item, (err as Error).message);
-      }
+  async function run(task: { itemId: string; index: number }) {
+    const st = state.get(task.itemId)!;
+    if (st.failed) return;
+    try {
+      await sendWithRetry(task.itemId, task.index);
+      if (--st.remaining === 0) await complete(task.itemId);
+    } catch (err) {
+      if (!st.failed) fail(st.item, (err as Error).message);
     }
   }
 
-  await Promise.all(Array.from({ length: Math.max(1, Math.min(opts.parallel, queue.length || 1)) }, worker));
+  // Start chunks while there are free slots; the target may move under us (auto).
+  let active = 0;
+  let finish!: () => void;
+  const finished = new Promise<void>((r) => (finish = r));
+  const limit = () => (pacer ? pacer.target : Math.max(1, opts.parallel));
+  function pump() {
+    while (active < limit() && queue.length) {
+      active++;
+      void run(queue.shift()!).finally(() => { active--; pump(); });
+    }
+    if (!active && !queue.length) finish();
+  }
+
+  opts.onParallel?.(limit());
+  pump();
+  await finished;
+  pacer?.stop();
   if (errors.length) throw new Error(errors.join('\n'));
 }
 

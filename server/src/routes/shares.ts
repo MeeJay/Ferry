@@ -50,7 +50,7 @@ sharesRouter.post('/', ah(async (req, res) => {
   assertCapacity(limits, 0, total);
 
   const share = await createPendingShare(req.user!, { ...body, source: 'web', expectedFiles: body.files.length });
-  res.status(201).json({ id: share.id, uploadToken: share.upload_token, chunkSize: req.app.get('chunkSize'), parallel: await effectiveParallel(req.user!) });
+  res.status(201).json({ id: share.id, uploadToken: share.upload_token, chunkSize: req.app.get('chunkSize'), ...(await effectiveParallel(req.user!)) });
 }));
 
 /** Step 2: once every tus upload finished, publish the link. */

@@ -17,8 +17,8 @@ meRouter.patch('/', ah(async (req, res) => {
   const b = z.object({
     displayName: z.string().min(1).max(100).optional(),
     vanity: z.string().max(32).nullable().optional(),
-    /** null = follow the admin default. Clamped to the admin ceiling at use. */
-    uploadParallel: z.number().int().min(1).max(32).nullable().optional(),
+    /** null = follow the admin default, 0 = auto. Clamped to the admin ceiling at use. */
+    uploadParallel: z.number().int().min(0).max(32).nullable().optional(),
   }).parse(req.body);
   const user = req.user!;
   const patch: Partial<UserRow> = {};

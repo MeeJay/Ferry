@@ -180,7 +180,8 @@ function DropPage({ res, path, onUnlocked }: { res: Extract<ResolveResult, { kin
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState('');
   const [phase, setPhase] = useState<'pick' | 'uploading' | 'done'>('pick');
-  const [parallel, setParallel] = useState(4);
+  const [parallel, setParallel] = useState(1);
+  const [auto, setAuto] = useState(false);
   const total = items.reduce((s, i) => s + i.file.size, 0);
   const overall = useLandedPercent(total);
   const tooMany = !!r.maxFiles && items.length > r.maxFiles;
@@ -198,12 +199,13 @@ function DropPage({ res, path, onUnlocked }: { res: Extract<ResolveResult, { kin
   async function send() {
     setPhase('uploading');
     try {
-      const s = await api.post<{ id: string; uploadToken: string; chunkSize: number; parallel: number }>(`/api/public/requests/${r.id}/session`, {
+      const s = await api.post<{ id: string; uploadToken: string; chunkSize: number; parallel: number; parallelMax: number }>(`/api/public/requests/${r.id}/session`, {
         name: name || null, email: email || '', message: message || null, files: items.length,
       });
-      setParallel(s.parallel || 4);
+      setAuto(!s.parallel);
+      setParallel(s.parallel || 1);
       useChunkLane.getState().clear();
-      await uploadAll(items, s.uploadToken, { parallel: s.parallel || 4 }, (id, patch) => setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i))), useChunkLane.getState().push);
+      await uploadAll(items, s.uploadToken, { parallel: s.parallel, max: s.parallelMax, onParallel: setParallel }, (id, patch) => setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i))), useChunkLane.getState().push);
       await api.post(`/api/public/requests/${r.id}/session/${s.id}/complete`, { token: s.uploadToken });
       setPhase('done');
     } catch (err) {
@@ -265,7 +267,7 @@ function DropPage({ res, path, onUnlocked }: { res: Extract<ResolveResult, { kin
           {r.maxSizeMb && <div className={clsx(tooBig && 'text-danger font-semibold')}>{formatBytes(total)} / {formatBytes(r.maxSizeMb * 1024 * 1024)} maximum</div>}
           {r.expiresAt && <div>Lien valable jusqu’au {new Date(r.expiresAt).toLocaleDateString('fr-FR')}</div>}
         </div>
-        {busy && <div><ChunkLane parallel={parallel} /><Progress value={overall} className="!h-3" /><TransferStats items={items} active={busy} /></div>}
+        {busy && <div><ChunkLane parallel={parallel} auto={auto} /><Progress value={overall} className="!h-3" /><TransferStats items={items} active={busy} /></div>}
         <Button variant="accent" size="xl" className="w-full" icon={<Send className="size-5" />} loading={busy}
           disabled={!items.length || tooMany || tooBig} onClick={send}>
           {busy ? `${Math.round(overall)} %` : 'Envoyer'}

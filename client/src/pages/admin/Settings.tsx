@@ -204,12 +204,19 @@ function Limits({ value, onSaved }: { value: SettingsMap['limits']; onSaved: (v:
           <NumberField label="Taille max / fichier" unit="Mo" value={draft.maxFileSizeMb} onChange={(v) => set('maxFileSizeMb', v)} />
           <NumberField label="Taille max / partage" unit="Mo" value={draft.maxShareSizeMb} onChange={(v) => set('maxShareSizeMb', v)} />
           <NumberField label="Quota par utilisateur" unit="Mo" value={draft.storageQuotaMb} onChange={(v) => set('storageQuotaMb', v)} />
-          <NumberField label="Fragments en parallèle (défaut)" unit="×" value={draft.uploadParallel}
-            onChange={(v) => set('uploadParallel', Math.min(draft.uploadParallelMax, Math.max(1, v)))}
-            hint="Valeur des utilisateurs qui ne l’ont pas réglée, et des dépôts anonymes." />
+          {draft.uploadParallel !== 0 && (
+            <NumberField label="Fragments en parallèle (défaut)" unit="×" value={draft.uploadParallel}
+              onChange={(v) => set('uploadParallel', Math.min(draft.uploadParallelMax, Math.max(1, v)))}
+              hint="Valeur fixe des utilisateurs qui ne l’ont pas réglée, et des dépôts anonymes." />
+          )}
           <NumberField label="Fragments en parallèle (max)" unit="×" value={draft.uploadParallelMax}
             onChange={(v) => { const max = Math.min(32, Math.max(1, v)); setDraft({ ...draft, uploadParallelMax: max, uploadParallel: Math.min(draft.uploadParallel, max) }); }}
-            hint="Plafond que chacun peut choisir (1 à 32), appliqué aussi par le serveur." />
+            hint="Plafond du mode auto et des choix de chacun (1 à 32), appliqué aussi par le serveur." />
+        </div>
+        <div className="mt-5">
+          <Toggle checked={draft.uploadParallel === 0} onChange={(v) => set('uploadParallel', v ? 0 : Math.min(4, draft.uploadParallelMax))}
+            label="Fragments en parallèle automatiques par défaut"
+            description="L’envoi commence avec 1 fragment et en ajoute tant que le débit augmente, jusqu’au maximum ; il recule si le débit chute. Chacun peut fixer sa propre valeur." />
         </div>
       </Panel>
       <Panel title="Durée de vie" footer={footer}>

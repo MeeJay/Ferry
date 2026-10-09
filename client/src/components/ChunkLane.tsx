@@ -71,7 +71,7 @@ function Bar({ c }: { c: LaneChunk }) {
  * Chunks filling side by side; each finished one drops into the overall bar
  * just below (the `chunk-land` animation), which only then advances.
  */
-export function ChunkLane({ parallel }: { parallel: number }) {
+export function ChunkLane({ parallel, auto }: { parallel: number; auto?: boolean }) {
   const chunks = useChunkLane((s) => s.chunks);
   const flying = chunks.filter((c) => !c.landing).length;
   const cubes = parallel > LANE_BARS_UP_TO;
@@ -81,7 +81,10 @@ export function ChunkLane({ parallel }: { parallel: number }) {
     <div className="mb-1.5">
       <div className="mb-1 flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-3">
         <span>Fragments en vol{count ? <span className="normal-case tracking-normal"> · sur {count}</span> : null}</span>
-        <span className="tabular-nums">{flying} / {parallel}</span>
+        <span className="tabular-nums">
+          {auto && <span className="mr-1.5 rounded-sm bg-accent/15 px-1 py-px text-[9px] tracking-[0.08em] text-accent" title="Ajusté en continu selon le débit mesuré">Auto</span>}
+          {flying} / {parallel}
+        </span>
       </div>
       <div className={clsx('flex items-end', cubes ? 'min-h-6 flex-wrap gap-1' : 'h-5 gap-1')}>
         {shown.map((c) => (cubes ? <Cube key={c.key} c={c} /> : <Bar key={c.key} c={c} />))}

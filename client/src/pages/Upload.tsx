@@ -19,7 +19,7 @@ export default function UploadPage() {
   const me = useApp((s) => s.me)!;
   const limits = me.limits;
   const t = useTransfer();
-  const { phase, parallel, items, result, title, message, password, usePassword, maxDownloads, notify, recipients, linkOverride } = t;
+  const { phase, parallel, auto, items, result, title, message, password, usePassword, maxDownloads, notify, recipients, linkOverride } = t;
   // null = not chosen yet: fall back to the user's defaults.
   const visibility: Visibility = t.visibility ?? (limits.defaultVisibility === 'public' && limits.allowPublic ? 'public' : 'private');
   const expiry = t.expiry ?? limits.defaultExpiryHours;
@@ -123,7 +123,7 @@ export default function UploadPage() {
           {!busy && <Button variant="ghost" icon={<RotateCcw className="size-4" />} onClick={reset}>Tout retirer</Button>}
         </div>
 
-        {busy && <div className="mb-6"><ChunkLane parallel={parallel} /><Progress value={overall} className="!h-3" /><TransferStats items={items} active={busy} /></div>}
+        {busy && <div className="mb-6"><ChunkLane parallel={parallel} auto={auto} /><Progress value={overall} className="!h-3" /><TransferStats items={items} active={busy} /></div>}
 
         <ul className="card divide-y divide-line-soft overflow-hidden">
           {items.map((i) => (

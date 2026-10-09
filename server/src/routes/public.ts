@@ -125,7 +125,7 @@ publicRouter.post('/requests/:id/session', dropLimiter, ah(async (req, res) => {
     expectedFiles: b.files,
     uploader: { name: b.name, email: b.email || null, ip: req.ip ?? null },
   });
-  res.status(201).json({ id: share.id, uploadToken: share.upload_token, chunkSize: req.app.get('chunkSize'), parallel: await effectiveParallel(null) });
+  res.status(201).json({ id: share.id, uploadToken: share.upload_token, chunkSize: req.app.get('chunkSize'), ...(await effectiveParallel(null)) });
 }));
 
 publicRouter.post('/requests/:id/session/:shareId/complete', ah(async (req, res) => {

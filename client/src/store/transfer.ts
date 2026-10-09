@@ -35,7 +35,10 @@ interface TransferState extends TransferForm {
   phase: TransferPhase;
   items: UploadItem[];
   result: ShareDTO | null;
+  /** Chunks in flight right now (moves during an auto transfer). */
   parallel: number;
+  /** Adaptive mode: the uploader picks `parallel` from the measured speed. */
+  auto: boolean;
   /** Recipients the finished share was mailed to (for the done screen). */
   sentTo: number;
   set: <K extends keyof TransferForm>(key: K, value: TransferForm[K]) => void;
@@ -50,7 +53,8 @@ export const useTransfer = create<TransferState>((set, get) => ({
   phase: 'pick',
   items: [],
   result: null,
-  parallel: 4,
+  parallel: 1,
+  auto: false,
   sentTo: 0,
 
   set: (key, value) => set({ [key]: value } as Partial<TransferState>),
@@ -84,14 +88,14 @@ export const useTransfer = create<TransferState>((set, get) => ({
     const update = (id: string, patch: Partial<UploadItem>) =>
       set({ items: get().items.map((i) => (i.id === id ? { ...i, ...patch } : i)) });
     try {
-      const share = await api.post<{ id: string; uploadToken: string; parallel: number }>('/api/shares', {
+      const share = await api.post<{ id: string; uploadToken: string; parallel: number; parallelMax: number }>('/api/shares', {
         ...options,
         files: items.map((i) => ({ name: i.file.name, size: i.file.size })),
       });
-      const parallel = share.parallel || 4;
-      set({ parallel });
+      set({ auto: !share.parallel, parallel: share.parallel || 1 });
       useChunkLane.getState().clear();
-      await uploadAll(items, share.uploadToken, { parallel }, update, useChunkLane.getState().push);
+      await uploadAll(items, share.uploadToken, { parallel: share.parallel, max: share.parallelMax, onParallel: (parallel) => set({ parallel }) },
+        update, useChunkLane.getState().push);
       const done = await api.post<ShareDTO>(`/api/shares/${share.id}/finalize`, { recipients });
       set({ result: done, phase: 'done', sentTo: recipients.length });
       useApp.getState().refreshMe();

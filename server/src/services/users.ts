@@ -91,11 +91,15 @@ export async function linkPolicies(user: UserRow): Promise<Record<LinkSource, Re
   ) as Record<LinkSource, ResolvedLinkPolicy>;
 }
 
-/** Chunks in flight for an uploader: their choice (or the admin default), never above the admin ceiling. */
-export async function effectiveParallel(user: Pick<UserRow, 'upload_parallel'> | null): Promise<number> {
+/**
+ * Chunks in flight for an uploader: their choice (or the admin default), never
+ * above the admin ceiling. 0 = auto: the uploader adapts it to the measured speed.
+ */
+export async function effectiveParallel(user: Pick<UserRow, 'upload_parallel'> | null): Promise<{ parallel: number; parallelMax: number }> {
   const l = await getSetting('limits');
-  const max = Math.max(1, l.uploadParallelMax);
-  return Math.min(max, Math.max(1, user?.upload_parallel ?? l.uploadParallel));
+  const parallelMax = Math.max(1, l.uploadParallelMax);
+  const v = user?.upload_parallel ?? l.uploadParallel;
+  return { parallel: v === 0 ? 0 : Math.min(parallelMax, Math.max(1, v)), parallelMax };
 }
 
 export async function toMe(user: UserRow): Promise<Me> {
@@ -114,7 +118,7 @@ export async function toMe(user: UserRow): Promise<Me> {
     limits: await effectiveLimits(user),
     linkPolicies: await linkPolicies(user),
     publicMinRandom: links.publicMinRandom,
-    uploadParallel: await effectiveParallel(user),
+    uploadParallel: (await effectiveParallel(user)).parallel,
     uploadParallelPref: user.upload_parallel,
     uploadParallelMax: Math.max(1, limitsSetting.uploadParallelMax),
   };
