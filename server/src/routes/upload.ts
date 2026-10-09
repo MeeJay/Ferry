@@ -6,7 +6,7 @@ import { MB } from '@ferry/shared';
 import { config } from '../config.js';
 import { db } from '../db/knex.js';
 import { logger } from '../logger.js';
-import { assertCapacity, HttpError, ingestFile, type ShareRow } from '../services/shares.js';
+import { assertCapacity, HttpError, ingestFile, trackIngest, type ShareRow } from '../services/shares.js';
 import { effectiveLimits, getUser } from '../services/users.js';
 
 // Resumable uploads (tus 1.0). Every upload carries the `token` of a pending
@@ -56,15 +56,17 @@ export const tus = new TusServer({
     const tmp = path.join(config.dirs.tus, upload.id);
     const name = String(upload.metadata?.filename || 'file');
     const mime = String(upload.metadata?.filetype || 'application/octet-stream');
-    try {
-      const file = await ingestFile(share, tmp, name, mime, upload.size ?? upload.offset);
-      return { headers: { 'X-Ferry-File': file.id } };
-    } catch (err: any) {
-      logger.error({ err: err.message, share: share.id }, 'ingest failed');
-      reject(err instanceof HttpError ? err.status : 500, err instanceof HttpError ? err.message : 'Échec de l’enregistrement');
-    } finally {
-      await fsp.rm(`${tmp}.json`, { force: true });
-    }
+    // Acknowledge now, store in the background: moving a large file into
+    // storage (S3 above all) must not hold the request past proxy timeouts.
+    const job = ingestFile(share, tmp, name, mime, upload.size ?? upload.offset)
+      .then(() => undefined)
+      .catch((err) => {
+        logger.error({ err: err.message, share: share.id, file: name }, 'ingest failed');
+        throw err;
+      })
+      .finally(() => fsp.rm(`${tmp}.json`, { force: true }));
+    trackIngest(share.id, job, name);
+    return {};
   },
 });
 

@@ -33,6 +33,8 @@ export interface LimitSettings {
   /** Extra hostnames (pointing to this instance) ShareX configs may return links on. */
   sharexDomains: string[];
   requestMaxExpiryHours: number;
+  /** Chunks sent at once by the web uploader (whole batch). */
+  uploadParallel: number;
 }
 
 export interface OidcSettings {

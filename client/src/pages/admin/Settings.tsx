@@ -204,6 +204,8 @@ function Limits({ value, onSaved }: { value: SettingsMap['limits']; onSaved: (v:
           <NumberField label="Taille max / fichier" unit="Mo" value={draft.maxFileSizeMb} onChange={(v) => set('maxFileSizeMb', v)} />
           <NumberField label="Taille max / partage" unit="Mo" value={draft.maxShareSizeMb} onChange={(v) => set('maxShareSizeMb', v)} />
           <NumberField label="Quota par utilisateur" unit="Mo" value={draft.storageQuotaMb} onChange={(v) => set('storageQuotaMb', v)} />
+          <NumberField label="Fragments en parallèle" unit="×" value={draft.uploadParallel} onChange={(v) => set('uploadParallel', Math.min(16, Math.max(1, v)))}
+            hint="Envois simultanés par transfert (1 à 16). Plus élevé = meilleur débit sur une liaison distante." />
         </div>
       </Panel>
       <Panel title="Durée de vie" footer={footer}>

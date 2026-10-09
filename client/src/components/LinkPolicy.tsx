@@ -31,15 +31,18 @@ function visible(k: LinkOptionKey, o: LinkOptions) {
   return true;
 }
 
-function OptionControl<K extends LinkOptionKey>({ k, value, onChange, disabled }: {
+function OptionControl<K extends LinkOptionKey>({ k, value, onChange, disabled, userSide }: {
   k: K; value: LinkOptions[K]; onChange: (v: LinkOptions[K]) => void; disabled?: boolean;
+  /** User-facing editor: "Aucun" (no prefix) is admin-only, shown only when imposed. */
+  userSide?: boolean;
 }) {
   const set = onChange as (v: unknown) => void;
   switch (k) {
     case 'prefixMode':
       return <Segmented size="sm" disabled={disabled} value={value as string} onChange={set} options={[
         { value: 'username', label: 'Pseudo' }, { value: 'usercode', label: 'Code perso' }, { value: 'random', label: 'Aléatoire' },
-        { value: 'vanity', label: 'Alias' }, { value: 'none', label: 'Aucun' },
+        { value: 'vanity', label: 'Alias' },
+        ...(!userSide || value === 'none' ? [{ value: 'none', label: 'Aucun' }] : []),
       ]} />;
     case 'nameMode':
       return (
@@ -114,7 +117,7 @@ export function UserLinkEditor({ source, policy, value, onChange, identity, publ
       <div className={clsx(compact ? 'mt-2' : '')}>
         {LINK_OPTION_KEYS.filter((k) => visible(k, effective)).map((k) => (
           <Row key={k} label={OPTION_LABELS[k]} locked={policy.locked[k] ? <LockTag /> : null}>
-            <OptionControl k={k} value={effective[k]} disabled={policy.locked[k]} onChange={(v) => onChange({ ...value, [k]: v })} />
+            <OptionControl k={k} value={effective[k]} disabled={policy.locked[k]} userSide onChange={(v) => onChange({ ...value, [k]: v })} />
           </Row>
         ))}
       </div>

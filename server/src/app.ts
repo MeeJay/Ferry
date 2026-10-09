@@ -13,6 +13,7 @@ import { adminRouter } from './routes/admin.js';
 import { sharexRouter } from './routes/sharex.js';
 import { serveRouter } from './routes/serve.js';
 import { tus } from './routes/upload.js';
+import { chunksRouter } from './routes/chunks.js';
 import { errorHandler } from './utils/http.js';
 
 export function createApp() {
@@ -27,6 +28,8 @@ export function createApp() {
   const tusHandler: express.RequestHandler = (req, res) => { tus.handle(req, res); };
   app.all('/api/upload', tusHandler);
   app.all('/api/upload/*', tusHandler);
+  // Parallel chunked uploads: raw request bodies, token-authenticated.
+  app.use('/api/chunks', chunksRouter);
 
   app.use(helmet({
     contentSecurityPolicy: false, // the SPA's CSP is set by the client nginx; raw files set their own

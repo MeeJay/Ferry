@@ -344,6 +344,7 @@ const settingSchemas: Record<SettingsKey, z.ZodTypeAny> = {
     defaultExpiryHours: z.number().int().min(0), maxExpiryHours: z.number().int().min(0), allowNeverExpire: z.boolean(),
     allowPublic: z.boolean(), defaultVisibility: z.enum(['private', 'public']),
     sharexEnabled: z.boolean(), sharexExpiryHours: z.number().int().min(0), sharexVisibility: z.enum(['private', 'public']),
+    uploadParallel: z.number().int().min(1).max(16),
     sharexDomains: z.array(z.string().trim().toLowerCase().regex(/^[a-z0-9.-]+(:d+)?$/, 'Nom d’hôte invalide')).max(20), requestMaxExpiryHours: z.number().int().min(0),
   }),
   auth: z.object({

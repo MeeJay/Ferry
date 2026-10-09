@@ -8,6 +8,8 @@ import { api, errorMessage } from '@/api/client';
 import { useApp } from '@/store/app';
 import { Button, buttonClasses, CopyLink, Field, Input, Progress, Segmented, Textarea, Toggle } from '@/components/ui';
 import { DropZone } from '@/components/DropZone';
+import { TransferStats } from '@/components/TransferStats';
+import { ChunkBar, ChunkLane, useChunkLane } from '@/components/ChunkLane';
 import { FileThumb } from '@/components/FileThumb';
 import { UserLinkEditor } from '@/components/LinkPolicy';
 import { RecipientsInput } from '@/components/RecipientsInput';
@@ -20,6 +22,7 @@ export default function UploadPage() {
   const me = useApp((s) => s.me)!;
   const limits = me.limits;
   const [phase, setPhase] = useState<Phase>('pick');
+  const [parallel, setParallel] = useState(4);
   const [items, setItems] = useState<UploadItem[]>([]);
   const [result, setResult] = useState<ShareDTO | null>(null);
 
@@ -68,7 +71,7 @@ export default function UploadPage() {
   async function send() {
     setPhase('uploading');
     try {
-      const share = await api.post<{ id: string; uploadToken: string; chunkSize: number }>('/api/shares', {
+      const share = await api.post<{ id: string; uploadToken: string; chunkSize: number; parallel: number }>('/api/shares', {
         title: title || null,
         message: message || null,
         visibility,
@@ -80,7 +83,9 @@ export default function UploadPage() {
         files: items.map((i) => ({ name: i.file.name, size: i.file.size })),
       });
       const update = (id: string, patch: Partial<UploadItem>) => setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
-      await uploadAll(items, share.uploadToken, share.chunkSize, update);
+      setParallel(share.parallel || 4);
+      useChunkLane.getState().clear();
+      await uploadAll(items, share.uploadToken, { parallel: share.parallel || 4 }, update, useChunkLane.getState().push);
       const done = await api.post<ShareDTO>(`/api/shares/${share.id}/finalize`, { recipients });
       setResult(done);
       setPhase('done');
@@ -148,7 +153,7 @@ export default function UploadPage() {
           {!busy && <Button variant="ghost" icon={<RotateCcw className="size-4" />} onClick={reset}>Tout retirer</Button>}
         </div>
 
-        {busy && <Progress value={overall} className="!h-3 mb-6" />}
+        {busy && <div className="mb-6"><ChunkLane parallel={parallel} /><Progress value={overall} className="!h-3" /><TransferStats items={items} active={busy} /></div>}
 
         <ul className="card divide-y divide-line-soft overflow-hidden">
           {items.map((i) => (
@@ -161,7 +166,7 @@ export default function UploadPage() {
                   {i.status === 'error' && <span className="text-danger font-semibold">{i.error}</span>}
                   {limits.maxFileSize > 0 && i.file.size > limits.maxFileSize && <span className="text-danger font-semibold">Trop volumineux</span>}
                 </div>
-                {i.status === 'uploading' && <Progress value={i.progress} className="mt-2 !h-1.5" />}
+                {i.status === 'uploading' && <ChunkBar item={i} />}
               </div>
               {i.status === 'done' ? <Check className="size-5 text-success" strokeWidth={3} /> : !busy && (
                 <button onClick={() => setItems(items.filter((x) => x.id !== i.id))} className="text-ink-3 hover:text-danger" aria-label="Retirer"><X className="size-5" /></button>

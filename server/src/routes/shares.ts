@@ -8,6 +8,7 @@ import {
 } from '../services/shares.js';
 import { effectiveLimits, hashPassword } from '../services/users.js';
 import { audit } from '../services/audit.js';
+import { getSetting } from '../services/settings.js';
 import { notifyEvent } from '../services/mail.js';
 import { ah, baseUrl } from '../utils/http.js';
 import { recipientsSchema, shareOptionsSchema, uuid } from '../utils/schemas.js';
@@ -49,7 +50,7 @@ sharesRouter.post('/', ah(async (req, res) => {
   assertCapacity(limits, 0, total);
 
   const share = await createPendingShare(req.user!, { ...body, source: 'web', expectedFiles: body.files.length });
-  res.status(201).json({ id: share.id, uploadToken: share.upload_token, chunkSize: req.app.get('chunkSize') });
+  res.status(201).json({ id: share.id, uploadToken: share.upload_token, chunkSize: req.app.get('chunkSize'), parallel: (await getSetting('limits')).uploadParallel });
 }));
 
 /** Step 2: once every tus upload finished, publish the link. */

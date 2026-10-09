@@ -8,7 +8,7 @@ import { checkHandle, hashPassword, linkPolicies, toMe, verifyPassword, type Use
 import { HttpError } from '../services/shares.js';
 import { audit } from '../services/audit.js';
 import { ah } from '../utils/http.js';
-import { partialLinkOptions, uuid } from '../utils/schemas.js';
+import { userLinkOptions, uuid } from '../utils/schemas.js';
 
 export const meRouter = Router();
 meRouter.use(requireAuth);
@@ -38,7 +38,7 @@ meRouter.patch('/', ah(async (req, res) => {
 
 /** Personal link preferences. Locked options are silently ignored at resolution time. */
 meRouter.put('/link-prefs', ah(async (req, res) => {
-  const prefs = z.object(Object.fromEntries(LINK_SOURCES.map((s) => [s, partialLinkOptions.optional()]))).parse(req.body) as UserLinkPrefs;
+  const prefs = z.object(Object.fromEntries(LINK_SOURCES.map((s) => [s, userLinkOptions.optional()]))).parse(req.body) as UserLinkPrefs;
   const [row] = await db<UserRow>('users').where({ id: req.user!.id }).update({ link_prefs: JSON.stringify(prefs) as any }).returning('*');
   res.json(await toMe(row));
 }));

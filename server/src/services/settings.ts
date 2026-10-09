@@ -30,6 +30,7 @@ export const DEFAULT_SETTINGS: SettingsMap = {
     sharexVisibility: 'public',
     sharexDomains: [],
     requestMaxExpiryHours: 720,
+    uploadParallel: 4,
   },
   auth: {
     localLogin: true,

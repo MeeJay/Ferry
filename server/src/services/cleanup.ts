@@ -5,6 +5,7 @@ import { db } from '../db/knex.js';
 import { logger } from '../logger.js';
 import { purgeShare, type ShareRow } from './shares.js';
 import { cleanupTus } from '../routes/upload.js';
+import { cleanupChunkSessions } from '../routes/chunks.js';
 
 /**
  * Periodic housekeeping:
@@ -31,6 +32,7 @@ export async function runCleanup() {
     .delete();
 
   await cleanupTus();
+  await cleanupChunkSessions();
   const cutoff = Date.now() - 24 * 3600_000;
   for (const f of await fsp.readdir(config.dirs.tmp).catch(() => [] as string[])) {
     const p = path.join(config.dirs.tmp, f);

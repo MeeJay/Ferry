@@ -12,6 +12,11 @@ export const linkOptionsSchema = z.object({
 
 export const partialLinkOptions = linkOptionsSchema.partial();
 
+/** Link options a user may set (preferences, per-share override): no "none" prefix. */
+export const userLinkOptions = partialLinkOptions.refine((o) => o.prefixMode !== 'none', {
+  message: 'Le préfixe « Aucun » est réservé à l’administrateur', path: ['prefixMode'],
+});
+
 const layerEntry = <T extends z.ZodTypeAny>(t: T) => z.object({ value: t.optional(), locked: z.boolean().optional() }).optional();
 
 export const policyLayerSchema = z.object(
@@ -26,7 +31,7 @@ export const shareOptionsSchema = z.object({
   expiryHours: z.number().int().min(0).max(24 * 365 * 10).nullish(),
   maxDownloads: z.number().int().min(0).max(1_000_000).nullish(),
   notifyOnDownload: z.boolean().optional(),
-  linkOverride: partialLinkOptions.nullish(),
+  linkOverride: userLinkOptions.nullish(),
 });
 
 export const uuid = z.string().uuid();

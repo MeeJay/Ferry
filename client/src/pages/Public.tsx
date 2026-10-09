@@ -9,6 +9,8 @@ import { BareLayout } from '@/components/Layout';
 import { Button, buttonClasses, CopyLink, Field, Input, PageLoader, Progress, Textarea } from '@/components/ui';
 import { FileThumb } from '@/components/FileThumb';
 import { DropZone } from '@/components/DropZone';
+import { TransferStats } from '@/components/TransferStats';
+import { ChunkBar, ChunkLane, useChunkLane } from '@/components/ChunkLane';
 import { absolute, formatBytes, relative } from '@/lib/format';
 import { newId, uploadAll, type UploadItem } from '@/lib/upload';
 
@@ -177,6 +179,7 @@ function DropPage({ res, path, onUnlocked }: { res: Extract<ResolveResult, { kin
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState('');
   const [phase, setPhase] = useState<'pick' | 'uploading' | 'done'>('pick');
+  const [parallel, setParallel] = useState(4);
   const total = items.reduce((s, i) => s + i.file.size, 0);
   const overall = total ? items.reduce((s, i) => s + (i.progress / 100) * i.file.size, 0) / total * 100 : 0;
   const tooMany = !!r.maxFiles && items.length > r.maxFiles;
@@ -191,10 +194,12 @@ function DropPage({ res, path, onUnlocked }: { res: Extract<ResolveResult, { kin
   async function send() {
     setPhase('uploading');
     try {
-      const s = await api.post<{ id: string; uploadToken: string; chunkSize: number }>(`/api/public/requests/${r.id}/session`, {
+      const s = await api.post<{ id: string; uploadToken: string; chunkSize: number; parallel: number }>(`/api/public/requests/${r.id}/session`, {
         name: name || null, email: email || '', message: message || null, files: items.length,
       });
-      await uploadAll(items, s.uploadToken, s.chunkSize, (id, patch) => setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i))));
+      setParallel(s.parallel || 4);
+      useChunkLane.getState().clear();
+      await uploadAll(items, s.uploadToken, { parallel: s.parallel || 4 }, (id, patch) => setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i))), useChunkLane.getState().push);
       await api.post(`/api/public/requests/${r.id}/session/${s.id}/complete`, { token: s.uploadToken });
       setPhase('done');
     } catch (err) {
@@ -232,7 +237,7 @@ function DropPage({ res, path, onUnlocked }: { res: Extract<ResolveResult, { kin
                     <div className="min-w-0 flex-1">
                       <div className="truncate font-semibold">{i.file.name}</div>
                       <div className="text-xs text-ink-3">{formatBytes(i.file.size)}{i.error && <span className="ml-2 text-danger">{i.error}</span>}</div>
-                      {i.status === 'uploading' && <Progress value={i.progress} className="mt-2 !h-1.5" />}
+                      {i.status === 'uploading' && <ChunkBar item={i} />}
                     </div>
                     {i.status === 'done' ? <Check className="size-5 text-success" /> : !busy && (
                       <button onClick={() => setItems(items.filter((x) => x.id !== i.id))} className="text-ink-3 hover:text-danger" aria-label="Retirer"><X className="size-5" /></button>
@@ -256,7 +261,7 @@ function DropPage({ res, path, onUnlocked }: { res: Extract<ResolveResult, { kin
           {r.maxSizeMb && <div className={clsx(tooBig && 'text-danger font-semibold')}>{formatBytes(total)} / {formatBytes(r.maxSizeMb * 1024 * 1024)} maximum</div>}
           {r.expiresAt && <div>Lien valable jusqu’au {new Date(r.expiresAt).toLocaleDateString('fr-FR')}</div>}
         </div>
-        {busy && <Progress value={overall} className="!h-3" />}
+        {busy && <div><ChunkLane parallel={parallel} /><Progress value={overall} className="!h-3" /><TransferStats items={items} active={busy} /></div>}
         <Button variant="accent" size="xl" className="w-full" icon={<Send className="size-5" />} loading={busy}
           disabled={!items.length || tooMany || tooBig} onClick={send}>
           {busy ? `${Math.round(overall)} %` : 'Envoyer'}

@@ -58,7 +58,10 @@ authApi.post('/login', loginLimiter, ah(async (req, res) => {
 
 // ── Self-registration & invitations ────────────────────────────────────────
 
-const registerLimiter = rateLimit({ windowMs: 60 * 60_000, limit: 10, standardHeaders: true, legacyHeaders: false });
+// Per client IP. Generous enough for an office behind one NAT address signing up
+// at once, still a wall for scripted abuse. Verification links get their own budget.
+const registerLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 30, standardHeaders: true, legacyHeaders: false });
+const emailLinkLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 30, standardHeaders: true, legacyHeaders: false });
 
 authApi.get('/invite/:token', ah(async (req, res) => {
   const invite = await findInvite(req.params.token);
@@ -135,7 +138,7 @@ authApi.post('/register', registerLimiter, ah(async (req, res) => {
   res.status(201).json({ status: 'active', me: await toMe(user) } satisfies RegisterResult);
 }));
 
-authApi.post('/verify-email', registerLimiter, ah(async (req, res) => {
+authApi.post('/verify-email', emailLinkLimiter, ah(async (req, res) => {
   const { token } = z.object({ token: z.string().min(10) }).parse(req.body);
   const row = await db('email_tokens').where({ token_hash: hashToken(token), purpose: 'verify' }).first();
   if (!row || row.used_at || new Date(row.expires_at).getTime() <= Date.now()) throw new HttpError(410, 'Lien invalide ou expiré');
@@ -151,7 +154,7 @@ authApi.post('/verify-email', registerLimiter, ah(async (req, res) => {
 }));
 
 /** Always answers the same way: does not reveal whether the address has an account. */
-authApi.post('/resend-verification', registerLimiter, ah(async (req, res) => {
+authApi.post('/resend-verification', emailLinkLimiter, ah(async (req, res) => {
   const { login } = z.object({ login: z.string().trim().toLowerCase().min(1) }).parse(req.body);
   const user = await db<UserRow>('users').where({ auth_provider: 'local', email_verified: false })
     .where((q) => q.whereRaw('lower(username) = ?', [login]).orWhereRaw('lower(email) = ?', [login])).first();

@@ -228,7 +228,37 @@ export async function ingestFile(share: ShareRow, tmpPath: string, name: string,
   throw new HttpError(409, 'Nom de fichier en conflit');
 }
 
+// ── Background ingestion ────────────────────────────────────────────────────
+// The last tus chunk is acknowledged immediately and the file is moved into
+// storage in the background (an S3 upload of a large file can outlast any
+// proxy timeout). finalizeShare() waits for these jobs before publishing.
+
+const ingesting = new Map<string, Set<Promise<void>>>();
+const ingestErrors = new Map<string, string[]>();
+
+export function trackIngest(shareId: string, job: Promise<void>, fileName: string) {
+  const jobs = ingesting.get(shareId) ?? new Set();
+  const tracked = job.catch((err: any) => {
+    ingestErrors.set(shareId, [...(ingestErrors.get(shareId) ?? []), `« ${fileName} » : ${err instanceof HttpError ? err.message : 'échec de l’enregistrement'}`]);
+  }).finally(() => {
+    jobs.delete(tracked);
+    if (!jobs.size) ingesting.delete(shareId);
+  });
+  jobs.add(tracked);
+  ingesting.set(shareId, jobs);
+}
+
+async function waitForIngest(shareId: string) {
+  for (let jobs = ingesting.get(shareId); jobs?.size; jobs = ingesting.get(shareId)) await Promise.all([...jobs]);
+  const errors = ingestErrors.get(shareId);
+  if (errors?.length) {
+    ingestErrors.delete(shareId);
+    throw new HttpError(500, `Échec de l’enregistrement — ${errors.join(' ; ')}`);
+  }
+}
+
 export async function finalizeShare(shareId: string): Promise<ShareRow> {
+  await waitForIngest(shareId);
   const share = await db<ShareRow>('shares').where({ id: shareId }).first();
   if (!share) throw new HttpError(404, 'Partage introuvable');
   if (share.status !== 'pending') return share;

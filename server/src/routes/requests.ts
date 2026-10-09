@@ -11,7 +11,7 @@ import { getSetting } from '../services/settings.js';
 import { audit } from '../services/audit.js';
 import { notifyEvent } from '../services/mail.js';
 import { absoluteUrl, ah, baseUrl } from '../utils/http.js';
-import { partialLinkOptions, recipientsSchema, uuid } from '../utils/schemas.js';
+import { recipientsSchema, userLinkOptions, uuid } from '../utils/schemas.js';
 
 export interface RequestRow {
   id: string;
@@ -66,7 +66,7 @@ const body = z.object({
   maxSizeMb: z.number().int().min(0).max(10_000_000).nullish(),
   notify: z.boolean().optional(),
   active: z.boolean().optional(),
-  linkOverride: partialLinkOptions.nullish(),
+  linkOverride: userLinkOptions.nullish(),
   recipients: recipientsSchema.optional(),
 });
 

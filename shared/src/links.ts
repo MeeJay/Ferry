@@ -76,6 +76,11 @@ export const DEFAULT_LINK_SETTINGS: LinkSettings = {
   reserved: ['www', 'mail', 'help', 'support', 'docs', 'status', 'about'],
 };
 
+/** Prefix modes a user may pick for themselves ("none" is admin-only). */
+export function userMayChoosePrefix(mode: PrefixMode): boolean {
+  return mode !== 'none';
+}
+
 export function resolveLinkPolicy(
   source: LinkSource,
   admin: LinkSettings,
@@ -99,7 +104,10 @@ export function resolveLinkPolicy(
   for (const layer of [user?.[source], override]) {
     if (!layer) continue;
     for (const k of LINK_OPTION_KEYS) {
-      if (!locked[k] && layer[k] !== undefined && layer[k] !== null) set(k, layer[k]);
+      if (locked[k] || layer[k] === undefined || layer[k] === null) continue;
+      // No prefix puts everyone in one shared namespace: an admin/profile decision only.
+      if (k === 'prefixMode' && !userMayChoosePrefix(layer[k] as PrefixMode)) continue;
+      set(k, layer[k]);
     }
   }
   options.prefixLength = clamp(options.prefixLength, 3, 32);
