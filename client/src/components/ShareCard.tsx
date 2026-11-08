@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import clsx from 'clsx';
-import { Download, ExternalLink, Globe, Inbox, KeyRound, Lock, Pencil, Trash2, Terminal } from 'lucide-react';
+import { Bot, Download, ExternalLink, Globe, Inbox, KeyRound, Lock, Pencil, Trash2, Terminal } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { ShareDTO, Visibility } from '@ferry/shared';
 import { api, errorMessage } from '@/api/client';
@@ -24,6 +24,7 @@ export function StatusBadge({ s }: { s: ShareDTO }) {
 export function SourceBadge({ s }: { s: ShareDTO }) {
   if (s.source === 'sharex') return <Badge><Terminal className="size-3" />ShareX</Badge>;
   if (s.source === 'request') return <Badge tone="accent"><Inbox className="size-3" />Dépôt</Badge>;
+  if (s.source === 'mcp') return <Badge><Bot className="size-3" />Agent IA</Badge>;
   return null;
 }
 

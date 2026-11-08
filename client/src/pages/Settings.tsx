@@ -1,29 +1,30 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import clsx from 'clsx';
-import { Download, KeyRound, Link2, Plus, Terminal, Trash2, User } from 'lucide-react';
+import { Bot, Check, Copy, Download, KeyRound, Link2, Plus, Terminal, Trash2, User } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { LINK_SOURCES, type LinkSource, type Me, type UserLinkPrefs } from '@ferry/shared';
+import { AI_KEY_SCOPES, LINK_SOURCES, type AiKeyDTO, type AiKeyScope, type LinkSource, type Me, type UserLinkPrefs } from '@ferry/shared';
 import { api, errorMessage } from '@/api/client';
 import { displayHandle } from '@/lib/handle';
 import { useApp } from '@/store/app';
 import { dateTime, formatBytes, relative } from '@/lib/format';
-import { Badge, Button, Confirm, CopyLink, Empty, Field, IconButton, Input, Modal, SectionTitle, Segmented, Select, Toggle } from '@/components/ui';
+import { Badge, Button, Confirm, CopyLink, copyText, Empty, Field, IconButton, Input, Modal, SectionTitle, Segmented, Select, Toggle } from '@/components/ui';
 import { SOURCE_LABELS, UserLinkEditor } from '@/components/LinkPolicy';
 import { ParallelPicker } from '@/components/ParallelPicker';
 
-type Tab = 'profile' | 'links' | 'sharex' | 'security';
+type Tab = 'profile' | 'links' | 'sharex' | 'ai' | 'security';
 
 export default function SettingsPage() {
   const me = useApp((s) => s.me)!;
   const params = useParams<{ tab?: Tab }>();
   const navigate = useNavigate();
-  const tab: Tab = params.tab && ['profile', 'links', 'sharex', 'security'].includes(params.tab) ? params.tab : 'profile';
+  const tab: Tab = params.tab && ['profile', 'links', 'sharex', 'ai', 'security'].includes(params.tab) ? params.tab : 'profile';
   const setTab = (t: Tab) => navigate(t === 'profile' ? '/settings' : `/settings/${t}`);
   const tabs: { id: Tab; label: string; icon: typeof User }[] = [
     { id: 'profile', label: 'Profil', icon: User },
     { id: 'links', label: 'Format des liens', icon: Link2 },
     { id: 'sharex', label: 'ShareX & API', icon: Terminal },
+    { id: 'ai', label: 'Agents IA', icon: Bot },
     ...(me.authProvider === 'local' ? [{ id: 'security' as Tab, label: 'Mot de passe', icon: KeyRound }] : []),
   ];
   return (
@@ -42,6 +43,7 @@ export default function SettingsPage() {
           {tab === 'profile' && <ProfileTab me={me} />}
           {tab === 'links' && <LinksTab me={me} />}
           {tab === 'sharex' && <ShareXTab me={me} />}
+          {tab === 'ai' && <AiKeysTab me={me} />}
           {tab === 'security' && <PasswordTab />}
         </div>
       </div>
@@ -370,6 +372,160 @@ function ShareXTab({ me }: { me: Me }) {
         Les outils qui l’utilisent ne pourront plus envoyer de fichiers.
       </Confirm>
     </div>
+  );
+}
+
+// ── AI agents (MCP) ────────────────────────────────────────────────────────
+
+const SCOPE_INFO: Record<AiKeyScope, { label: string; hint: string }> = {
+  upload: { label: 'Envoyer des fichiers', hint: 'Crée des partages et renvoie leurs liens (page + téléchargement direct).' },
+  read: { label: 'Lire mes partages', hint: 'Liste vos partages et leurs liens, quelle que soit leur origine.' },
+  delete: { label: 'Supprimer ses envois', hint: 'Supprime uniquement les partages envoyés par un agent, jamais les vôtres.' },
+};
+
+const KEY_EXPIRY = [
+  { value: 7, label: '7 jours' }, { value: 30, label: '30 jours' }, { value: 90, label: '90 jours' },
+  { value: 365, label: '1 an' }, { value: 0, label: 'Jamais' },
+];
+
+function CodeBlock({ code, label }: { code: string; label: string }) {
+  const [done, setDone] = useState(false);
+  useEffect(() => { if (done) { const t = setTimeout(() => setDone(false), 1500); return () => clearTimeout(t); } }, [done]);
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center justify-between gap-3">
+        <span className="label">{label}</span>
+        <button type="button" onClick={() => { copyText(code, 'Copié'); setDone(true); }}
+          className="flex items-center gap-1.5 text-xs font-semibold text-ink-3 hover:text-ink">
+          {done ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}{done ? 'Copié' : 'Copier'}
+        </button>
+      </div>
+      <pre className="overflow-x-auto whitespace-pre rounded-md bg-surface-2 p-4 font-mono text-[12px] text-ink scroll-thin">{code}</pre>
+    </div>
+  );
+}
+
+function mcpSnippets(key: string) {
+  const url = `${window.location.origin}/mcp`;
+  return {
+    claude: `claude mcp add --transport http --scope user ferry ${url} --header "Authorization: Bearer ${key}"`,
+    json: JSON.stringify({ mcpServers: { ferry: { type: 'http', url, headers: { Authorization: `Bearer ${key}` } } } }, null, 2),
+  };
+}
+
+function AiKeysTab({ me }: { me: Me }) {
+  const [keys, setKeys] = useState<AiKeyDTO[] | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [fresh, setFresh] = useState<AiKeyDTO | null>(null);
+  const [revoke, setRevoke] = useState<AiKeyDTO | null>(null);
+  const load = () => { api.get<AiKeyDTO[]>('/api/me/ai-keys').then(setKeys).catch(() => setKeys([])); };
+  useEffect(load, []);
+
+  if (!me.limits.aiKeysEnabled) {
+    return (
+      <Empty icon={<Bot className="size-6" />} title="Agents IA désactivés">
+        L’administrateur n’a pas ouvert les clés d’accès pour agents IA sur cette instance.
+      </Empty>
+    );
+  }
+  const endpoint = `${window.location.origin}/mcp`;
+  const expired = (k: AiKeyDTO) => !!k.expiresAt && new Date(k.expiresAt).getTime() <= Date.now();
+
+  return (
+    <div className="space-y-6">
+      <Panel title="Agents IA (MCP)">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <p className="max-w-xl text-sm text-ink-2">
+            Donnez une clé à un agent IA (Claude Code, Claude Desktop…) : il pourra envoyer des fichiers, même très lourds, et récupérer leurs liens,
+            par exemple pour les télécharger ensuite avec <span className="kbd">curl</span> sur d’autres machines. Les fichiers ne transitent pas par l’IA :
+            l’agent les envoie lui-même. La clé agit en votre nom, dans vos limites, et n’ouvre rien d’autre.
+          </p>
+          <Button variant="accent" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>Nouvelle clé</Button>
+        </div>
+      </Panel>
+      <Panel title="Clés d’accès">
+        {keys && keys.length === 0 ? <Empty icon={<KeyRound className="size-6" />} title="Aucune clé">Créez une clé par agent ou par poste : chacune est révocable à tout moment.</Empty> : (
+          <ul className="divide-y divide-line-soft">
+            {(keys ?? []).map((k) => (
+              <li key={k.id} className="flex items-center gap-4 py-3">
+                <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-surface-2"><Bot className="size-4" /></div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5 text-sm font-semibold">
+                    {k.name}
+                    {k.scopes.map((s) => <Badge key={s} className="!h-5">{SCOPE_INFO[s].label}</Badge>)}
+                    {expired(k) && <Badge tone="warn" className="!h-5">Expirée</Badge>}
+                  </div>
+                  <div className="text-xs text-ink-3">
+                    <span className="font-mono">{k.hint}</span> · créée le {dateTime(k.createdAt)} · {k.expiresAt ? `${expired(k) ? 'expirée' : 'expire'} ${relative(k.expiresAt)}` : 'sans expiration'}
+                    {' · '}{k.lastUsedAt ? `utilisée ${relative(k.lastUsedAt)}${k.lastIp ? ` depuis ${k.lastIp}` : ''}` : 'jamais utilisée'}
+                  </div>
+                </div>
+                <IconButton label="Révoquer" className="hover:!text-danger" onClick={() => setRevoke(k)}><Trash2 className="size-4" /></IconButton>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Panel>
+      <Panel title="Connexion">
+        <div className="space-y-4 text-sm text-ink-2">
+          <p>Serveur MCP (HTTP) de cette instance, authentifié par la clé dans l’en-tête <span className="kbd">Authorization: Bearer</span> :</p>
+          <CopyLink url={endpoint} />
+          <p>La commande complète, clé incluse, est affichée à la création. Ensuite, demandez simplement à l’agent : « envoie ce fichier sur Ferry et donne-moi le lien direct ».</p>
+        </div>
+      </Panel>
+
+      {creating && <NewAiKeyModal onClose={() => setCreating(false)} onCreated={(k) => { setCreating(false); setFresh(k); load(); }} />}
+      <Modal open={!!fresh} onClose={() => setFresh(null)} title="Clé créée" width="max-w-2xl"
+        footer={<Button variant="accent" onClick={() => setFresh(null)}>Terminé</Button>}>
+        {fresh?.key && (
+          <div className="space-y-5">
+            <p className="text-sm text-ink-2">Elle ne sera plus affichée : copiez-la maintenant, ou directement la commande qui la contient.</p>
+            <CopyLink url={fresh.key} />
+            <CodeBlock label="Claude Code" code={mcpSnippets(fresh.key).claude} />
+            <CodeBlock label="Autres clients MCP (JSON)" code={mcpSnippets(fresh.key).json} />
+          </div>
+        )}
+      </Modal>
+      <Confirm open={!!revoke} onClose={() => setRevoke(null)} title="Révoquer cette clé ?" confirmLabel="Révoquer"
+        onConfirm={async () => { await api.del(`/api/me/ai-keys/${revoke!.id}`); setRevoke(null); load(); toast.success('Clé révoquée'); }}>
+        L’agent qui l’utilise ne pourra plus rien envoyer. Les partages déjà créés restent en place.
+      </Confirm>
+    </div>
+  );
+}
+
+function NewAiKeyModal({ onClose, onCreated }: { onClose: () => void; onCreated: (k: AiKeyDTO) => void }) {
+  const [name, setName] = useState(`Claude — ${new Date().toLocaleDateString('fr-FR')}`);
+  const [scopes, setScopes] = useState<AiKeyScope[]>(['upload', 'read']);
+  const [expiresDays, setExpiresDays] = useState(90);
+  const [busy, setBusy] = useState(false);
+  const toggle = (s: AiKeyScope, on: boolean) => setScopes(on ? [...scopes, s] : scopes.filter((x) => x !== s));
+
+  async function create() {
+    setBusy(true);
+    try {
+      onCreated(await api.post<AiKeyDTO>('/api/me/ai-keys', { name, scopes, expiresDays }));
+    } catch (err) { toast.error(errorMessage(err)); } finally { setBusy(false); }
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Nouvelle clé d’accès IA"
+      footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button variant="accent" loading={busy} disabled={!name.trim() || !scopes.length} onClick={create}>Créer la clé</Button></>}>
+      <div className="space-y-5">
+        <Field label="Nom" hint="Ex. l’agent ou le poste qui l’utilise."><Input autoFocus value={name} onChange={(e) => setName(e.target.value)} maxLength={80} /></Field>
+        <div>
+          <div className="label mb-3">Droits</div>
+          <div className="space-y-4">
+            {AI_KEY_SCOPES.map((s) => <Toggle key={s} checked={scopes.includes(s)} onChange={(v) => toggle(s, v)} label={SCOPE_INFO[s].label} description={SCOPE_INFO[s].hint} />)}
+          </div>
+        </div>
+        <Field label="Expiration">
+          <Select value={expiresDays} onChange={(e) => setExpiresDays(Number(e.target.value))}>
+            {KEY_EXPIRY.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </Select>
+        </Field>
+      </div>
+    </Modal>
   );
 }
 

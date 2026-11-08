@@ -8,7 +8,7 @@ import {
 import { Input, LockTag, Segmented, Select, Toggle } from './ui';
 
 export const SOURCE_LABELS: Record<LinkSource, { title: string; hint: string; sample: string }> = {
-  web: { title: 'Partages', hint: 'Fichiers envoyés depuis l’interface', sample: 'Rapport annuel 2026.pdf' },
+  web: { title: 'Partages', hint: 'Fichiers envoyés depuis l’interface ou par un agent IA', sample: 'Rapport annuel 2026.pdf' },
   sharex: { title: 'ShareX', hint: 'Captures et fichiers envoyés via l’API', sample: 'capture.png' },
   request: { title: 'Demandes de dépôt', hint: 'Liens envoyés pour recevoir des fichiers', sample: 'Pièces fournisseur' },
 };

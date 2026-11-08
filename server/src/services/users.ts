@@ -81,6 +81,7 @@ export async function effectiveLimits(user: UserRow): Promise<EffectiveLimits> {
     defaultVisibility: g.defaultVisibility,
     sharexEnabled: pick(p?.sharex_enabled, g.sharexEnabled),
     sharexDomains: g.sharexDomains,
+    aiKeysEnabled: g.aiKeysEnabled,
   };
 }
 

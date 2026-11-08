@@ -2,7 +2,8 @@ import type { LinkOptions, LinkSettings, PolicyLayer, ResolvedLinkPolicy, UserLi
 
 export type Role = 'admin' | 'user';
 export type Visibility = 'private' | 'public';
-export type ShareSource = 'web' | 'sharex' | 'request';
+/** `mcp`: sent by an AI agent through its access key (MCP server). */
+export type ShareSource = 'web' | 'sharex' | 'request' | 'mcp';
 export type ShareKind = 'files' | 'url';
 
 // ── Settings (key/value rows in `settings`) ─────────────────────────────────
@@ -37,6 +38,8 @@ export interface LimitSettings {
   uploadParallel: number;
   /** Ceiling a user may choose, also enforced server-side per share. */
   uploadParallelMax: number;
+  /** Users may create access keys for AI agents (MCP server at /mcp). */
+  aiKeysEnabled: boolean;
 }
 
 export interface OidcSettings {
@@ -170,6 +173,7 @@ export interface EffectiveLimits {
   defaultVisibility: Visibility;
   sharexEnabled: boolean;
   sharexDomains: string[];
+  aiKeysEnabled: boolean;
 }
 
 // ── API DTOs ─────────────────────────────────────────────────────────────────
@@ -359,3 +363,22 @@ export interface InvitePreview {
 }
 
 export type RegisterResult = { status: 'active'; me: Me } | { status: 'verify_email' } | { status: 'pending_approval' };
+
+// ── AI access keys (MCP) ─────────────────────────────────────────────────────
+
+/** Rights of an AI access key: send files, read one's shares, delete them. */
+export type AiKeyScope = 'upload' | 'read' | 'delete';
+export const AI_KEY_SCOPES: AiKeyScope[] = ['upload', 'read', 'delete'];
+
+export interface AiKeyDTO {
+  id: string;
+  name: string;
+  hint: string;
+  scopes: AiKeyScope[];
+  expiresAt: string | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+  lastIp: string | null;
+  /** Only in the answer of the creation, never again. */
+  key?: string;
+}

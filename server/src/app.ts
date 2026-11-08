@@ -15,7 +15,9 @@ import { sharexRouter } from './routes/sharex.js';
 import { serveRouter } from './routes/serve.js';
 import { tus } from './routes/upload.js';
 import { chunksRouter } from './routes/chunks.js';
-import { errorHandler } from './utils/http.js';
+import { agentUploadRouter } from './routes/agentUpload.js';
+import { mcpHandler } from './services/mcp.js';
+import { ah, errorHandler } from './utils/http.js';
 
 export function createApp() {
   const app = express();
@@ -31,6 +33,8 @@ export function createApp() {
   app.all('/api/upload/*', tusHandler);
   // Parallel chunked uploads: raw request bodies, token-authenticated.
   app.use('/api/chunks', chunksRouter);
+  // Files announced by AI agents (MCP create_upload): raw bodies, upload-token URLs.
+  app.use('/api/agent-upload', agentUploadRouter);
 
   app.use(helmet({
     contentSecurityPolicy: false, // the SPA's CSP is set by the client nginx; raw files set their own
@@ -38,6 +42,10 @@ export function createApp() {
     crossOriginResourcePolicy: { policy: 'cross-origin' }, // let chat apps embed public images
   }));
   app.use(express.json({ limit: '1mb' }));
+
+  // MCP server of the AI access keys (JSON-RPC 2.0 over POST, services/mcp.ts). Key auth, no session.
+  app.post('/mcp', ah(mcpHandler));
+  app.all('/mcp', (_req, res) => { res.set('Allow', 'POST').status(405).json({ error: 'Use POST (JSON-RPC 2.0)' }); });
 
   const PgStore = connectPg(session);
   app.use(session({

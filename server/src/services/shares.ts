@@ -44,7 +44,12 @@ export interface ShareRow {
   created_at: Date;
   finalized_at: Date | null;
   purged_at: Date | null;
+  /** Agent uploads: the announced files, one upload URL each (routes/agentUpload.ts). */
+  upload_plan: PlannedFile[] | null;
+  ai_key_id: string | null;
 }
+
+export interface PlannedFile { name: string; size: number | null; done: boolean }
 
 export interface FileRow {
   id: string;
@@ -275,7 +280,8 @@ export async function finalizeShare(shareId: string): Promise<ShareRow> {
     original = files.length === 1 ? files[0].name : share.title || 'partage';
   }
 
-  const linkSource = share.source === 'request' ? 'web' : share.source;
+  // Drop-page and agent uploads follow the owner's web link format.
+  const linkSource = share.source === 'request' || share.source === 'mcp' ? 'web' : share.source;
   const { prefix, slug } = await allocateLink({
     owner, source: linkSource, kind: 'share', targetId: share.id, original,
     visibility: share.visibility, override: share.link_override,

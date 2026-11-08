@@ -11,6 +11,7 @@ const SOURCES = [
   { key: 'web', label: 'Web', color: 'rgb(var(--accent))' },
   { key: 'sharex', label: 'ShareX', color: 'rgb(var(--accent-2))' },
   { key: 'request', label: 'Dépôts', color: 'rgb(var(--warm-1))' },
+  { key: 'mcp', label: 'Agents IA', color: 'rgb(var(--warm-2))' },
 ] as const;
 
 export default function AdminDashboard() {

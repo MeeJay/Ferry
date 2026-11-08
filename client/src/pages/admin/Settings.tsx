@@ -243,6 +243,9 @@ function Limits({ value, onSaved }: { value: SettingsMap['limits']; onSaved: (v:
           </Field>
         </div>
       </Panel>
+      <Panel title="Agents IA (MCP)" description="Chacun peut créer des clés d’accès pour qu’un agent IA (Claude…) envoie des fichiers et récupère leurs liens via le serveur MCP de cette instance (/mcp). Une clé agit comme son créateur, dans ses limites, et n’ouvre jamais le reste de l’API." footer={footer}>
+        <Toggle checked={draft.aiKeysEnabled} onChange={(v) => set('aiKeysEnabled', v)} label="Clés d’accès IA autorisées" description="Désactivé : toutes les clés existantes sont refusées immédiatement (elles refonctionnent si vous réactivez)." />
+      </Panel>
     </>
   );
 }

@@ -32,6 +32,7 @@ export const DEFAULT_SETTINGS: SettingsMap = {
     requestMaxExpiryHours: 720,
     uploadParallel: 0,
     uploadParallelMax: 8,
+    aiKeysEnabled: true,
   },
   auth: {
     localLogin: true,

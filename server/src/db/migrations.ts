@@ -222,6 +222,34 @@ const migrations: Migration[] = [
       await knex.schema.alterTable('users', (t) => { t.dropColumn('obligate_id'); });
     },
   },
+  {
+    name: '006_ai_keys',
+    async up(knex) {
+      // Access keys of AI agents: they only open the MCP server (/mcp), never the REST API.
+      await knex.schema.createTable('ai_keys', (t) => {
+        t.uuid('id').primary().defaultTo(knex.raw('gen_random_uuid()'));
+        t.uuid('user_id').notNullable().references('users.id').onDelete('CASCADE');
+        t.text('name').notNullable();
+        t.text('key_hash').notNullable().unique();
+        t.text('key_hint').notNullable();
+        t.specificType('scopes', 'text[]').notNullable();
+        t.timestamp('expires_at', { useTz: true });
+        t.timestamp('created_at', { useTz: true }).notNullable().defaultTo(knex.fn.now());
+        t.timestamp('last_used_at', { useTz: true });
+        t.text('last_ip');
+        t.index(['user_id']);
+      });
+      // Files an agent announced for a pending share: [{ name, size, done }], one upload URL each.
+      await knex.schema.alterTable('shares', (t) => {
+        t.jsonb('upload_plan');
+        t.uuid('ai_key_id').references('ai_keys.id').onDelete('SET NULL');
+      });
+    },
+    async down(knex) {
+      await knex.schema.alterTable('shares', (t) => { t.dropColumn('upload_plan'); t.dropColumn('ai_key_id'); });
+      await knex.schema.dropTableIfExists('ai_keys');
+    },
+  },
 ];
 
 export const migrationSource: Knex.MigrationSource<Migration> = {

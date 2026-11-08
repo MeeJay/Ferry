@@ -1,12 +1,14 @@
 import crypto from 'node:crypto';
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { z } from 'zod';
-import { LINK_SOURCES, type UserLinkPrefs } from '@ferry/shared';
+import { AI_KEY_SCOPES, LINK_SOURCES, type UserLinkPrefs } from '@ferry/shared';
 import { db } from '../db/knex.js';
 import { hashToken, requireAuth } from '../middleware/auth.js';
 import { checkHandle, hashPassword, linkPolicies, toMe, verifyPassword, type UserRow } from '../services/users.js';
 import { HttpError } from '../services/shares.js';
 import { audit } from '../services/audit.js';
+import { aiKeyDTO, MAX_KEYS_PER_USER, newKey, type AiKeyRow } from '../services/aiKeys.js';
+import { getSetting } from '../services/settings.js';
 import { ah } from '../utils/http.js';
 import { userLinkOptions, uuid } from '../utils/schemas.js';
 
@@ -79,5 +81,48 @@ meRouter.delete('/tokens/:id', ah(async (req, res) => {
   const n = await db('api_tokens').where({ id: uuid.parse(req.params.id), user_id: req.user!.id }).delete();
   if (!n) throw new HttpError(404, 'Jeton introuvable');
   audit(req, 'token.revoked', req.params.id);
+  res.json({ ok: true });
+}));
+
+// â”€â”€ AI access keys (MCP) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Managed from a signed-in browser only: an API token (ShareX) cannot mint keys.
+
+function browserOnly(req: Request) {
+  if (req.viaToken) throw new HttpError(403, 'Gestion des clÃ©s IA rÃ©servÃ©e Ã  lâ€™interface web');
+}
+
+meRouter.get('/ai-keys', ah(async (req, res) => {
+  browserOnly(req);
+  const rows = await db<AiKeyRow>('ai_keys').where({ user_id: req.user!.id }).orderBy('created_at', 'desc');
+  res.json(rows.map(aiKeyDTO));
+}));
+
+meRouter.post('/ai-keys', ah(async (req, res) => {
+  browserOnly(req);
+  if (!(await getSetting('limits')).aiKeysEnabled) throw new HttpError(403, 'Les clÃ©s dâ€™accÃ¨s IA sont dÃ©sactivÃ©es par lâ€™administrateur');
+  const b = z.object({
+    name: z.string().trim().min(1).max(80),
+    scopes: z.array(z.enum(AI_KEY_SCOPES as [string, ...string[]])).min(1).max(AI_KEY_SCOPES.length),
+    /** 0 = never. */
+    expiresDays: z.number().int().min(0).max(3650).default(90),
+  }).parse(req.body);
+  const user = req.user!;
+  const count = await db('ai_keys').where({ user_id: user.id })
+    .where((w) => w.whereNull('expires_at').orWhere('expires_at', '>', db.fn.now())).count<{ n: string }[]>({ n: '*' });
+  if (Number(count[0].n) >= MAX_KEYS_PER_USER) throw new HttpError(400, `Maximum ${MAX_KEYS_PER_USER} clÃ©s actives par compte`);
+  const { key, hash, hint } = newKey();
+  const [row] = await db<AiKeyRow>('ai_keys').insert({
+    user_id: user.id, name: b.name, key_hash: hash, key_hint: hint, scopes: [...new Set(b.scopes)] as any,
+    expires_at: b.expiresDays ? new Date(Date.now() + b.expiresDays * 86_400_000) : null,
+  }).returning('*');
+  audit(req, 'ai_key.created', row.id, { name: row.name, scopes: row.scopes, expiresAt: row.expires_at });
+  res.status(201).json({ ...aiKeyDTO(row), key });
+}));
+
+meRouter.delete('/ai-keys/:id', ah(async (req, res) => {
+  browserOnly(req);
+  const n = await db('ai_keys').where({ id: uuid.parse(req.params.id), user_id: req.user!.id }).delete();
+  if (!n) throw new HttpError(404, 'ClÃ© introuvable');
+  audit(req, 'ai_key.revoked', req.params.id);
   res.json({ ok: true });
 }));

@@ -50,7 +50,7 @@ export default function AdminFiles() {
         <Segmented value={params.get('status') || 'active'} onChange={(v) => set('status', v)}
           options={[{ value: 'active', label: 'Actifs' }, { value: 'expired', label: 'Expirés' }, { value: 'deleted', label: 'Supprimés' }, { value: 'all', label: 'Tous' }]} />
         <Select value={params.get('source') ?? ''} onChange={(e) => set('source', e.target.value)} className="!w-40">
-          <option value="">Toutes sources</option><option value="web">Web</option><option value="sharex">ShareX</option><option value="request">Dépôts</option>
+          <option value="">Toutes sources</option><option value="web">Web</option><option value="sharex">ShareX</option><option value="request">Dépôts</option><option value="mcp">Agents IA</option>
         </Select>
         <Select value={params.get('type') ?? ''} onChange={(e) => set('type', e.target.value)} className="!w-40">
           <option value="">Tous types</option><option value="image">Images</option><option value="video">Vidéos</option><option value="audio">Audio</option>
@@ -107,7 +107,7 @@ function ShareDetail({ share, onClose, onChanged }: { share: ShareDTO; onClose: 
   }
   const rows: [string, React.ReactNode][] = [
     ['Propriétaire', share.owner ? `${share.owner.displayName} (@${share.owner.username})` : '—'],
-    ['Source', share.source === 'sharex' ? 'ShareX / API' : share.source === 'request' ? 'Demande de dépôt' : 'Interface web'],
+    ['Source', share.source === 'sharex' ? 'ShareX / API' : share.source === 'request' ? 'Demande de dépôt' : share.source === 'mcp' ? 'Agent IA (MCP)' : 'Interface web'],
     ...(share.uploader ? [['Déposé par', `${share.uploader.name || '—'}${share.uploader.email ? ` · ${share.uploader.email}` : ''}${share.uploader.ip ? ` · ${share.uploader.ip}` : ''}`] as [string, React.ReactNode]] : []),
     ['Visibilité', `${share.visibility === 'public' ? 'Public' : 'Privé'}${share.hasPassword ? ' · mot de passe' : ''}`],
     ['Créé', dateTime(share.createdAt)],

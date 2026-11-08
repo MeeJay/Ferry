@@ -62,7 +62,7 @@ adminRouter.get('/shares', ah(async (req, res) => {
     page: z.coerce.number().int().min(1).default(1),
     pageSize: z.coerce.number().int().min(1).max(200).default(48),
     search: z.string().optional(),
-    source: z.enum(['web', 'sharex', 'request']).optional(),
+    source: z.enum(['web', 'sharex', 'request', 'mcp']).optional(),
     status: z.enum(['active', 'expired', 'deleted', 'all']).default('active'),
     owner: z.string().uuid().optional(),
     type: z.enum(['image', 'video', 'audio', 'document', 'archive', 'other']).optional(),
@@ -367,6 +367,7 @@ const settingSchemas: Record<SettingsKey, z.ZodTypeAny> = {
     sharexEnabled: z.boolean(), sharexExpiryHours: z.number().int().min(0), sharexVisibility: z.enum(['private', 'public']),
     uploadParallel: z.number().int().min(0).max(32),
     uploadParallelMax: z.number().int().min(1).max(32),
+    aiKeysEnabled: z.boolean(),
     sharexDomains: z.array(z.string().trim().toLowerCase().regex(/^[a-z0-9.-]+(:d+)?$/, 'Nom d’hôte invalide')).max(20), requestMaxExpiryHours: z.number().int().min(0),
   }),
   auth: z.object({

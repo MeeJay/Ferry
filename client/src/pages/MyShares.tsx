@@ -7,7 +7,7 @@ import { buttonClasses, Empty, Input, PageLoader, SectionTitle, Segmented } from
 import { ShareCard, shareName } from '@/components/ShareCard';
 
 type Tab = 'active' | 'expired' | 'all';
-type Source = '' | 'web' | 'sharex' | 'request';
+type Source = '' | 'web' | 'sharex' | 'request' | 'mcp';
 
 export default function MySharesPage() {
   const [tab, setTab] = useState<Tab>('active');
@@ -35,7 +35,7 @@ export default function MySharesPage() {
         action={<Link to="/" className={buttonClasses('accent', 'lg')}><Plus className="size-5" />Nouveau</Link>} />
       <div className="mb-6 flex flex-wrap items-center gap-3">
         <Segmented value={tab} onChange={setTab} options={[{ value: 'active', label: 'Actifs' }, { value: 'expired', label: 'Expirés' }, { value: 'all', label: 'Tous' }]} />
-        <Segmented value={source} onChange={setSource} options={[{ value: '', label: 'Toutes sources' }, { value: 'web', label: 'Web' }, { value: 'sharex', label: 'ShareX' }, { value: 'request', label: 'Reçus' }]} />
+        <Segmented value={source} onChange={setSource} options={[{ value: '', label: 'Toutes sources' }, { value: 'web', label: 'Web' }, { value: 'sharex', label: 'ShareX' }, { value: 'request', label: 'Reçus' }, { value: 'mcp', label: 'Agents IA' }]} />
         <div className="relative ml-auto w-full sm:w-64">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-3" />
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher" className="!pl-9" />
