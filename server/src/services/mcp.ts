@@ -6,14 +6,17 @@ import { db } from '../db/knex.js';
 import { logger } from '../logger.js';
 import { authenticateKey, REFUSALS, type AiKeyContext } from './aiKeys.js';
 import {
-  cancelAgentUpload, createAgentUpload, finishAgentUpload, MAX_AGENT_FILES, ownShare, planStatus, shareLinks, uploadUrl,
+  cancelAgentUpload, createAgentUpload, DEFAULT_WINDOW_MIN, finishAgentUpload, MAX_AGENT_FILES, MAX_WINDOW_MIN, ownShare, planStatus,
+  renewUploadUrls, shareLinks, windowClosed,
 } from './agentUploads.js';
-import { HttpError, purgeShare, type ShareRow } from './shares.js';
-import { effectiveLimits } from './users.js';
+import { computeExpiry, HttpError, isExpired, purgeShare, resolveVisibility, shareMailVars, type ShareRow } from './shares.js';
+import { effectiveLimits, hashPassword } from './users.js';
+import { notifyEvent } from './mail.js';
 import { getSetting } from './settings.js';
 import { audit } from './audit.js';
 import { baseUrl } from '../utils/http.js';
 import { AGENT_GUIDE } from './mcpGuide.js';
+import { mcpChallenge } from './oauth.js';
 
 // ─── MCP server of the AI access keys ────────────────────────────────────────
 //
@@ -50,21 +53,35 @@ const SHARE_ID = { type: 'string', description: 'Share id (uuid), from create_up
 const GiB = 1024 ** 3;
 const bytes = (n: number) => (n >= GiB ? `${(n / GiB).toFixed(1)} GiB` : `${Math.round(n / 1024 ** 2)} MiB`);
 
+/** A share this key may change: the account's, sent by an AI agent. */
+async function agentShare(ctx: AiKeyContext, id: unknown): Promise<ShareRow> {
+  const share = await ownShare(ctx, id);
+  if (share.source !== 'mcp') throw new HttpError(403, 'Only shares sent by an AI agent can be changed with a key: ask the human to do it in Ferry');
+  return share;
+}
+
+function uploadEntry(index: number, name: string, size: number | null, url: string) {
+  return {
+    index, name, size, upload_url: url,
+    curl: `curl --fail-with-body -sS -T "<path of ${name}>" "${url}"`,
+  };
+}
+
 const tools: ToolDef[] = [
   {
     name: 'whoami',
     title: 'Who am I',
-    description: 'The account this key acts as, its rights, its limits (file size, quota, expiry, public links) and the base URL. Call it first.',
+    description: 'The account this key acts as, its rights, its limits (file size, quota, expiry, public links), what this instance offers (passwords, e-mail) and the base URL. Call it first.',
     scope: null, readOnly: true,
     args: z.object({}).strict(),
     inputSchema: obj({}),
     async run({ req, ctx }) {
       const l = await effectiveLimits(ctx.user);
-      const branding = await getSetting('branding');
+      const [branding, mail] = await Promise.all([getSetting('branding'), getSetting('mail')]);
       return {
         instance: { name: branding.name, baseUrl: baseUrl(req), version: config.version },
         account: { username: ctx.user.username.replace(/^og_/, ''), displayName: ctx.user.display_name, role: ctx.user.role },
-        key: { name: ctx.key.name, rights: ctx.key.scopes, expiresAt: ctx.key.expires_at },
+        key: { name: ctx.key.name, kind: ctx.key.kind, rights: ctx.key.scopes, expiresAt: ctx.key.expires_at },
         limits: {
           maxFileSize: l.maxFileSize || null, maxShareSize: l.maxShareSize || null,
           storageQuota: l.storageQuota || null, storageUsed: l.storageUsed,
@@ -73,7 +90,16 @@ const tools: ToolDef[] = [
           neverExpireAllowed: l.allowNeverExpire, publicLinksAllowed: l.allowPublic,
           note: 'Sizes in bytes; null = unlimited.',
         },
-        upload: { uploadWindowHours: 24, pieceSizeIfProxyLimits: config.uploadChunkMb * 1024 * 1024 },
+        options: {
+          publicLinks: l.allowPublic, privateLinks: true, passwords: true, maxDownloads: true,
+          emailSending: mail.provider !== 'none', notifyOnDownload: mail.provider !== 'none',
+          note: 'What a share can have. emailSending false = send_share is unavailable: give the links to the human instead.',
+        },
+        upload: {
+          windowMinutesDefault: DEFAULT_WINDOW_MIN, windowMinutesMax: MAX_WINDOW_MIN,
+          pieceSizeIfProxyLimits: config.uploadChunkMb * 1024 * 1024,
+        },
+        canModify: 'Only the shares sent by an AI agent (source mcp) can be changed, e-mailed or deleted with a key. The human\'s own shares are read-only here.',
         tools: tools.filter((t) => !t.scope || ctx.key.scopes.includes(t.scope)).map((t) => t.name),
       };
     },
@@ -99,6 +125,9 @@ const tools: ToolDef[] = [
       visibility: z.enum(['public', 'private']).optional(),
       expires_hours: z.number().int().min(0).max(24 * 3650).optional(),
       max_downloads: z.number().int().min(1).max(1_000_000).optional(),
+      password: z.string().min(4).max(200).optional(),
+      notify_on_download: z.boolean().optional(),
+      upload_window_minutes: z.number().int().min(5).max(MAX_WINDOW_MIN).optional(),
     }).strict(),
     inputSchema: obj({
       files: {
@@ -111,31 +140,31 @@ const tools: ToolDef[] = [
       visibility: { type: 'string', enum: ['public', 'private'], description: 'public (default when allowed) = anyone with the link can download, needed to curl it from other machines. private = a Ferry sign-in is required.' },
       expires_hours: { type: 'integer', description: 'Lifetime in hours (0 = never, if allowed). Default: the account default. Capped by the account maximum. Prefer the shortest that fits the task.' },
       max_downloads: { type: 'integer', description: 'The share disappears after this many downloads (e.g. the number of machines). Default: unlimited.' },
+      password: { type: 'string', description: 'Protects the share (4-200 characters): the page asks for it, curl sends it with -H "X-Share-Password: ...". Give it to the human apart from the link, never in the share message.' },
+      notify_on_download: { type: 'boolean', description: 'E-mails the account owner at each download (when e-mail is configured, see whoami).' },
+      upload_window_minutes: { type: 'integer', description: `How long the upload URLs work, 5-${MAX_WINDOW_MIN} minutes, default ${DEFAULT_WINDOW_MIN}. Pick what the transfer needs: short for a small file, longer for a big one on a slow link.` },
     }, ['files']),
     async run({ req, ctx }, a) {
-      const share = await createAgentUpload(req, ctx, {
+      const { share, urls } = await createAgentUpload(req, ctx, {
         files: a.files, title: a.title, message: a.message, visibility: a.visibility,
-        expiryHours: a.expires_hours, maxDownloads: a.max_downloads,
+        expiryHours: a.expires_hours, maxDownloads: a.max_downloads, password: a.password,
+        notifyOnDownload: a.notify_on_download, windowMinutes: a.upload_window_minutes,
       });
       audit(req, 'mcp.upload_started', share.id, { key: ctx.key.name, files: a.files.length });
       return {
         upload_id: share.id,
         visibility: share.visibility,
+        hasPassword: !!share.password_hash,
         shareExpiresAt: share.expires_at,
         maxDownloads: share.max_downloads,
-        uploadUrlsValidFor: 'until the upload is finished, at most 24 hours',
-        files: share.upload_plan!.map((f, index) => {
-          const url = uploadUrl(req, share, index);
-          return {
-            index, name: f.name, size: f.size, upload_url: url,
-            curl: `curl --fail-with-body -sS -T "<path of ${f.name}>" "${url}"`,
-          };
-        }),
+        uploadUrlsExpireAt: share.upload_expires_at,
+        files: share.upload_plan!.map((f, index) => uploadEntry(index, f.name, f.size, urls[index])),
         next: [
           'Send each file with its curl command (on Windows: curl.exe, same options). The answer of the last one carries `share` with the links.',
           `If a request is refused for its size (HTTP 413 from a proxy) or keeps breaking, send pieces of ${config.uploadChunkMb} MiB with Content-Range (get_guide, "Large files"); GET upload_url tells how many bytes are stored.`,
+          'File on another machine (remote shell, RMM such as Obliance): run the command ON that machine, it needs only the upload URL, never this key. Windows without curl.exe, or remote commands with a time limit: the resumable PowerShell loop of get_guide.',
           'finish_upload publishes what was received if you drop a file; cancel_upload abandons everything.',
-          'Upload URLs are secret: never show them in a share, a ticket or a chat.',
+          'Each upload URL is a single-use token for ONE file: it stops working once that file is complete, when the share is published or cancelled, or at uploadUrlsExpireAt. Keep them out of shares, tickets and chats. get_upload with renew_urls gives new ones (the old ones die).',
         ],
       };
     },
@@ -143,14 +172,32 @@ const tools: ToolDef[] = [
   {
     name: 'get_upload',
     title: 'Upload status',
-    description: 'Progress of an upload (bytes received per file, upload URLs of the files still missing), or its links once published.',
-    scope: 'upload', readOnly: true,
-    args: z.object({ upload_id: z.string() }).strict(),
-    inputSchema: obj({ upload_id: { type: 'string', description: 'upload_id given by create_upload.' } }, ['upload_id']),
+    description: 'Progress of an upload (bytes received per file), or its links once published. renew_urls: new upload URLs for the files still missing, the previous ones stop working (lost, leaked, or the window closed); bytes already received are kept.',
+    scope: 'upload', readOnly: false,
+    args: z.object({
+      upload_id: z.string(),
+      renew_urls: z.boolean().optional(),
+      upload_window_minutes: z.number().int().min(5).max(MAX_WINDOW_MIN).optional(),
+    }).strict(),
+    inputSchema: obj({
+      upload_id: { type: 'string', description: 'upload_id given by create_upload.' },
+      renew_urls: { type: 'boolean', description: 'Issue new upload URLs for the missing files and revoke the previous ones.' },
+      upload_window_minutes: { type: 'integer', description: `With renew_urls: the new window from now (default: unchanged, or ${DEFAULT_WINDOW_MIN} minutes if it was closed).` },
+    }, ['upload_id']),
     async run({ req, ctx }, a) {
-      const share = await ownShare(ctx, a.upload_id);
+      let share = await ownShare(ctx, a.upload_id);
       if (share.status !== 'pending') return { status: 'published', share: await shareLinks(req, share) };
-      return { status: 'receiving', files: await planStatus(req, share) };
+      if (!a.renew_urls) {
+        return { status: 'receiving', uploadUrlsExpireAt: share.upload_expires_at, windowClosed: windowClosed(share), files: await planStatus(share) };
+      }
+      const renewed = await renewUploadUrls(req, share, a.upload_window_minutes ?? (windowClosed(share) ? DEFAULT_WINDOW_MIN : null));
+      share = renewed.share;
+      audit(req, 'mcp.upload_renewed', share.id, { key: ctx.key.name });
+      const status = await planStatus(share);
+      return {
+        status: 'receiving', uploadUrlsExpireAt: share.upload_expires_at,
+        files: status.map((f) => (renewed.urls[f.index] ? { ...f, ...uploadEntry(f.index, f.name, f.size, renewed.urls[f.index]) } : f)),
+      };
     },
   },
   {
@@ -224,8 +271,79 @@ const tools: ToolDef[] = [
     inputSchema: obj({ share_id: SHARE_ID }, ['share_id']),
     async run({ req, ctx }, a) {
       const share = await ownShare(ctx, a.share_id);
-      if (share.status === 'pending') return { status: 'receiving', files: await planStatus(req, share) };
+      if (share.status === 'pending') return { status: 'receiving', files: await planStatus(share) };
       return shareLinks(req, share);
+    },
+  },
+  {
+    name: 'update_share',
+    title: 'Change a share',
+    description: 'Changes a share sent by an AI agent (source mcp): title, message, visibility, password, expiry, download limit, download notification. Only the fields given change.',
+    scope: 'upload', readOnly: false,
+    args: z.object({
+      share_id: z.string(),
+      title: z.string().max(200).nullable().optional(),
+      message: z.string().max(2000).nullable().optional(),
+      visibility: z.enum(['public', 'private']).optional(),
+      password: z.string().max(200).nullable().optional(),
+      expires_hours: z.number().int().min(0).max(24 * 3650).optional(),
+      max_downloads: z.number().int().min(0).max(1_000_000).optional(),
+      notify_on_download: z.boolean().optional(),
+    }).strict(),
+    inputSchema: obj({
+      share_id: SHARE_ID,
+      title: { type: ['string', 'null'] },
+      message: { type: ['string', 'null'] },
+      visibility: { type: 'string', enum: ['public', 'private'] },
+      password: { type: ['string', 'null'], description: 'New password (4-200 characters); "" or null removes it.' },
+      expires_hours: { type: 'integer', description: 'New lifetime from NOW, in hours (0 = never, if allowed). Capped by the account maximum.' },
+      max_downloads: { type: 'integer', description: 'New download limit, counted from the start; 0 = unlimited.' },
+      notify_on_download: { type: 'boolean' },
+    }, ['share_id']),
+    async run({ req, ctx }, a) {
+      const share = await agentShare(ctx, a.share_id);
+      const limits = await effectiveLimits(ctx.user);
+      const patch: Partial<ShareRow> = {};
+      if (a.title !== undefined) patch.title = a.title?.trim() || null;
+      if (a.message !== undefined) patch.message = a.message?.trim() || null;
+      if (a.visibility !== undefined) {
+        if (a.visibility === 'public' && !limits.allowPublic) throw new HttpError(403, 'Public links are not allowed for this account');
+        patch.visibility = resolveVisibility(limits, a.visibility);
+      }
+      if (a.password !== undefined) {
+        if (a.password && a.password.length < 4) throw new HttpError(400, 'A password has at least 4 characters');
+        patch.password_hash = a.password ? await hashPassword(a.password) : null;
+      }
+      if (a.expires_hours !== undefined) {
+        if (share.status === 'expired') throw new HttpError(409, 'The files of this share are already deleted: it cannot be extended');
+        patch.expires_at = computeExpiry(limits, a.expires_hours);
+      }
+      if (a.max_downloads !== undefined) patch.max_downloads = a.max_downloads || null;
+      if (a.notify_on_download !== undefined) patch.notify_on_download = a.notify_on_download;
+      if (!Object.keys(patch).length) throw new HttpError(400, 'Nothing to change');
+      const [row] = await db<ShareRow>('shares').where({ id: share.id }).update(patch).returning('*');
+      audit(req, 'share.updated', share.id, { by: 'mcp', key: ctx.key.name, fields: Object.keys(patch) });
+      return share.status === 'pending' ? { updated: Object.keys(patch), status: 'receiving' } : shareLinks(req, row);
+    },
+  },
+  {
+    name: 'send_share',
+    title: 'E-mail a share',
+    description: 'E-mails the link of a published share sent by an AI agent to people (Ferry sends it from the instance, with the title, message, size and expiry). Needs e-mail on the instance (whoami options.emailSending). Never e-mails a password: give it separately.',
+    scope: 'upload', readOnly: false,
+    args: z.object({ share_id: z.string(), recipients: z.array(z.string().trim().toLowerCase().email()).min(1).max(20) }).strict(),
+    inputSchema: obj({
+      share_id: SHARE_ID,
+      recipients: { type: 'array', items: { type: 'string', format: 'email' }, minItems: 1, maxItems: 20, description: 'E-mail addresses (only those the human asked for).' },
+    }, ['share_id', 'recipients']),
+    async run({ req, ctx }, a) {
+      const share = await agentShare(ctx, a.share_id);
+      if (share.status !== 'ready' || isExpired(share)) throw new HttpError(409, 'Only a published, active share can be sent');
+      if ((await getSetting('mail')).provider === 'none') throw new HttpError(409, 'E-mail is not configured on this instance: give the link to the human instead');
+      const recipients = [...new Set<string>(a.recipients)];
+      notifyEvent('share_invite', recipients, { ...(await shareMailVars(req, share)), sender: ctx.user.display_name }, baseUrl(req));
+      audit(req, 'share.sent', share.id, { by: 'mcp', key: ctx.key.name, recipients: recipients.length });
+      return { sent: recipients.length, recipients, hasPassword: !!share.password_hash };
     },
   },
   {
@@ -236,8 +354,7 @@ const tools: ToolDef[] = [
     args: z.object({ share_id: z.string() }).strict(),
     inputSchema: obj({ share_id: SHARE_ID }, ['share_id']),
     async run({ req, ctx }, a) {
-      const share = await ownShare(ctx, a.share_id);
-      if (share.source !== 'mcp') throw new HttpError(403, 'Only shares sent by an AI agent can be deleted with a key');
+      const share = await agentShare(ctx, a.share_id);
       if (share.status === 'pending') await cancelAgentUpload(share);
       else await purgeShare(share, 'deleted');
       audit(req, 'share.deleted', share.id, { by: 'mcp', key: ctx.key.name });
@@ -280,8 +397,10 @@ function instructions(ctx: AiKeyContext) {
   return [
     'Ferry is a self-hosted file-sharing server. With this key you send files and get links: a page for humans and a direct download URL that curl can fetch on any machine.',
     `This key acts as the Ferry account "${ctx.user.username.replace(/^og_/, '')}" with its current limits. Rights: ${ctx.key.scopes.join(', ')}.`,
-    'Files never go through MCP: create_upload gives one upload URL per file, send the bytes with curl -T, the last answer carries the links.',
-    'Call get_guide before your first upload.',
+    'Files never go through MCP: create_upload gives one upload URL per file, send the bytes with curl -T, the last answer carries the links. The file may be on another machine you reach (remote shell, RMM): run the upload there, it needs only the upload URL.',
+    'Shares can be public or private, password-protected, limited in time and in downloads, notify the owner, and be e-mailed: choose from the request and the situation (get_guide, "Choosing the options").',
+    'Each upload URL is a single-use token for one file, valid for a window you choose: never copy this key to another machine.',
+    'Call whoami, then get_guide before your first upload.',
   ].join(' ');
 }
 
@@ -314,7 +433,7 @@ async function handle(env: Env, msg: JsonRpcMessage): Promise<object | null> {
 export async function mcpHandler(req: Request, res: Response) {
   const ctx = await authenticateKey(req);
   if (typeof ctx === 'string') {
-    res.set('WWW-Authenticate', `Bearer realm="ferry", error="invalid_token", error_description="${REFUSALS[ctx]}"`);
+    res.set('WWW-Authenticate', mcpChallenge(req, REFUSALS[ctx]));
     return res.status(ctx === 'disabled' ? 403 : 401).json({ jsonrpc: '2.0', id: null, error: { code: -32001, message: REFUSALS[ctx] } });
   }
   req.user = ctx.user;

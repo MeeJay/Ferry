@@ -11,6 +11,7 @@ import MySharesPage from '@/pages/MyShares';
 import RequestsPage from '@/pages/Requests';
 import SettingsPage from '@/pages/Settings';
 import PublicPage from '@/pages/Public';
+import OAuthAuthorizePage from '@/pages/OAuthAuthorize';
 import AdminLayout from '@/pages/admin/AdminLayout';
 import AdminDashboard from '@/pages/admin/Dashboard';
 import AdminFiles from '@/pages/admin/Files';
@@ -36,6 +37,7 @@ export default function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/verify-email" element={<VerifyEmailPage />} />
+      <Route path="/oauth/authorize" element={<OAuthAuthorizePage />} />
       <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
         <Route index element={<UploadPage />} />
         <Route path="/my" element={<MySharesPage />} />

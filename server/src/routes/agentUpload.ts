@@ -7,17 +7,19 @@ import { db } from '../db/knex.js';
 import { logger } from '../logger.js';
 import { assertCapacity, HttpError, ingestFile, type ShareRow } from '../services/shares.js';
 import { effectiveLimits, getUser } from '../services/users.js';
-import { finishAgentUpload, partPath, receivedBytes, shareLinks } from '../services/agentUploads.js';
+import { findByFileToken, finishAgentUpload, partPath, receivedBytes, shareLinks, windowClosed } from '../services/agentUploads.js';
 import { audit } from '../services/audit.js';
 import { ah } from '../utils/http.js';
 
 // Bytes of the files an AI agent announced through MCP (services/agentUploads.ts).
 //
-//   PUT {base}/api/agent-upload/{token}/{index}    the whole file:  curl -T file URL
-//       with Content-Range: bytes a-b/total        one piece, appended at a (resumable)
-//   GET {base}/api/agent-upload/{token}/{index}    → { offset, size, done }
+//   PUT {base}/api/agent-upload/{file token}    the whole file:  curl -T file URL
+//       with Content-Range: bytes a-b/total     one piece, appended at a (resumable)
+//   GET {base}/api/agent-upload/{file token}    → { offset, size, done }
 //
-// The token is the pending share's upload token: no other credential. Pieces
+// The token belongs to ONE announced file (services/agentUploads.ts): it is the
+// only credential, works until the upload window closes, and is refused once
+// that file is complete. Pieces
 // must follow each other (a = bytes already received); a piece already stored
 // is acknowledged again, so a retry after a lost answer is harmless. The file
 // is stored once complete; the last file of the share publishes it and the
@@ -28,14 +30,10 @@ export const agentUploadRouter = Router();
 const busy = new Set<string>();
 
 async function target(req: Request): Promise<{ share: ShareRow; index: number }> {
-  const token = req.params.token;
-  const share = token && /^[A-Za-z0-9_-]{20,64}$/.test(token)
-    ? await db<ShareRow>('shares').where({ upload_token: token, status: 'pending', source: 'mcp' }).first()
-    : null;
-  if (!share?.upload_plan) throw new HttpError(404, 'Unknown or finished upload');
-  const index = Number(req.params.index);
-  if (!Number.isInteger(index) || index < 0 || index >= share.upload_plan.length) throw new HttpError(404, 'No such file in this upload');
-  return { share, index };
+  const hit = await findByFileToken(req.params.token);
+  if (!hit) throw new HttpError(404, 'Unknown upload URL, or the upload is finished or was renewed');
+  if (windowClosed(hit.share)) throw new HttpError(410, 'The upload window is closed: ask the agent for new URLs (get_upload with renew_urls)');
+  return hit;
 }
 
 function parseRange(h: string | undefined): { start: number; end: number; total: number } | null {
@@ -47,13 +45,13 @@ function parseRange(h: string | undefined): { start: number; end: number; total:
   return { start, end, total };
 }
 
-agentUploadRouter.get('/:token/:index', ah(async (req, res) => {
+agentUploadRouter.get('/:token', ah(async (req, res) => {
   const { share, index } = await target(req);
   const f = share.upload_plan![index];
   res.json({ name: f.name, size: f.size, offset: f.done ? f.size : await receivedBytes(share, index), done: f.done });
 }));
 
-agentUploadRouter.put('/:token/:index', ah(async (req, res) => {
+agentUploadRouter.put('/:token', ah(async (req, res) => {
   const { share, index } = await target(req);
   const plan = share.upload_plan![index];
   if (plan.done) {

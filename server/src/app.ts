@@ -16,6 +16,7 @@ import { serveRouter } from './routes/serve.js';
 import { tus } from './routes/upload.js';
 import { chunksRouter } from './routes/chunks.js';
 import { agentUploadRouter } from './routes/agentUpload.js';
+import { oauthApiRouter, oauthPublicRouter } from './services/oauth.js';
 import { mcpHandler } from './services/mcp.js';
 import { ah, errorHandler } from './utils/http.js';
 
@@ -44,6 +45,8 @@ export function createApp() {
   app.use(express.json({ limit: '1mb' }));
 
   // MCP server of the AI access keys (JSON-RPC 2.0 over POST, services/mcp.ts). Key auth, no session.
+  // OAuth of the Claude connectors (metadata + token endpoint): no session either.
+  app.use(oauthPublicRouter);
   app.post('/mcp', ah(mcpHandler));
   app.all('/mcp', (_req, res) => { res.set('Allow', 'POST').status(405).json({ error: 'Use POST (JSON-RPC 2.0)' }); });
 
@@ -82,6 +85,7 @@ export function createApp() {
   app.use('/api/shares', sharesRouter);
   app.use('/api/requests', requestsRouter);
   app.use('/api/me', meRouter);
+  app.use('/api/oauth', oauthApiRouter);
   app.use('/api/admin', adminRouter);
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Route inconnue' }));
 

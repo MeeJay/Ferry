@@ -19,7 +19,8 @@ function reject(status: number, message: string): never {
 
 async function pendingShare(token: string | null | undefined): Promise<ShareRow> {
   if (!token) reject(401, 'Jeton d’upload manquant');
-  const share = await db<ShareRow>('shares').where({ upload_token: token, status: 'pending' }).first();
+  // Agent uploads ('mcp') only accept their per-file URLs (routes/agentUpload.ts).
+  const share = await db<ShareRow>('shares').where({ upload_token: token, status: 'pending' }).whereNot({ source: 'mcp' }).first();
   if (!share) reject(403, 'Jeton d’upload invalide ou expiré');
   return share;
 }

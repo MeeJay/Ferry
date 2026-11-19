@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import type { Request } from 'express';
-import type { AiKeyDTO, AiKeyScope } from '@ferry/shared';
+import type { AiKeyDTO, AiKeyKind, AiKeyScope } from '@ferry/shared';
 import { db } from '../db/knex.js';
 import { getSetting } from './settings.js';
 import { getUser, type UserRow } from './users.js';
@@ -11,6 +11,8 @@ import { getUser, type UserRow } from './users.js';
 // key can send files and read the owner's shares, never change the account.
 //
 // Format `frk_<43 base64url>` (256 bits); only its sha256 is stored.
+// A key of kind 'connector' has no bearer secret: it is an OAuth client
+// (services/oauth.ts) whose access tokens `fat_…` act as the key.
 
 export const KEY_PREFIX = 'frk_';
 export const MAX_KEYS_PER_USER = 20;
@@ -19,6 +21,9 @@ const KEY_RE = /^frk_[A-Za-z0-9_-]{43}$/;
 export interface AiKeyRow {
   id: string;
   user_id: string;
+  kind: AiKeyKind;
+  oauth_client_id: string | null;
+  oauth_secret_hash: string | null;
   name: string;
   key_hash: string;
   key_hint: string;
@@ -31,7 +36,8 @@ export interface AiKeyRow {
 
 export interface AiKeyContext { key: AiKeyRow; user: UserRow }
 
-const sha256 = (s: string) => crypto.createHash('sha256').update(s).digest('hex');
+export const sha256 = (s: string) => crypto.createHash('sha256').update(s).digest('hex');
+const ACCESS_RE = /^fat_[A-Za-z0-9_-]{43}$/;
 
 export function newKey(): { key: string; hash: string; hint: string } {
   const key = `${KEY_PREFIX}${crypto.randomBytes(32).toString('base64url')}`;
@@ -40,7 +46,7 @@ export function newKey(): { key: string; hash: string; hint: string } {
 
 export function aiKeyDTO(k: AiKeyRow): AiKeyDTO {
   return {
-    id: k.id, name: k.name, hint: k.key_hint, scopes: k.scopes,
+    id: k.id, kind: k.kind, name: k.name, hint: k.key_hint, scopes: k.scopes, clientId: k.oauth_client_id,
     expiresAt: k.expires_at ? new Date(k.expires_at).toISOString() : null,
     createdAt: new Date(k.created_at).toISOString(),
     lastUsedAt: k.last_used_at ? new Date(k.last_used_at).toISOString() : null,
@@ -50,13 +56,27 @@ export function aiKeyDTO(k: AiKeyRow): AiKeyDTO {
 
 export type KeyRefusal = 'missing' | 'invalid' | 'expired' | 'disabled' | 'account';
 
-/** Resolves `Authorization: Bearer frk_…`; every check is redone on each call. */
+/** Resolves `Authorization: Bearer frk_…` (key) or `fat_…` (connector token); every check is redone on each call. */
 export async function authenticateKey(req: Request): Promise<AiKeyContext | KeyRefusal> {
   const header = req.get('authorization') ?? '';
-  const raw = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+  const raw = /^Bearer /i.test(header) ? header.slice(7).trim() : '';
   if (!raw) return 'missing';
-  if (!KEY_RE.test(raw)) return 'invalid';
-  const key = await db<AiKeyRow>('ai_keys').where({ key_hash: sha256(raw) }).first();
+  let key: AiKeyRow | undefined;
+  if (ACCESS_RE.test(raw)) {
+    const tok = await db('ai_oauth_tokens').where({ token_hash: sha256(raw), kind: 'access' }).first('key_id', 'expires_at');
+    if (!tok) return 'invalid';
+    if (new Date(tok.expires_at).getTime() <= Date.now()) return 'invalid';
+    key = await db<AiKeyRow>('ai_keys').where({ id: tok.key_id, kind: 'connector' }).first();
+  } else if (KEY_RE.test(raw)) {
+    key = await db<AiKeyRow>('ai_keys').where({ key_hash: sha256(raw), kind: 'key' }).first();
+  } else {
+    return 'invalid';
+  }
+  return keyContext(req, key);
+}
+
+/** The checks shared by keys and connector tokens. */
+export async function keyContext(req: Request, key: AiKeyRow | undefined): Promise<AiKeyContext | KeyRefusal> {
   if (!key) return 'invalid';
   if (key.expires_at && new Date(key.expires_at).getTime() <= Date.now()) return 'expired';
   if (!(await getSetting('limits')).aiKeysEnabled) return 'disabled';
@@ -67,7 +87,7 @@ export async function authenticateKey(req: Request): Promise<AiKeyContext | KeyR
 }
 
 export const REFUSALS: Record<KeyRefusal, string> = {
-  missing: 'Access key required: Authorization: Bearer frk_...',
+  missing: 'Access key required: Authorization: Bearer frk_... (or connect through OAuth)',
   invalid: 'Unknown or revoked access key',
   expired: 'This access key has expired',
   disabled: 'AI access keys are disabled on this instance',

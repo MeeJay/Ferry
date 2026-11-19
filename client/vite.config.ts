@@ -18,6 +18,6 @@ export default defineConfig({
   build: { target: ['es2020', 'chrome87', 'edge88', 'firefox78', 'safari14'] },
   server: {
     port: 5173,
-    proxy: Object.fromEntries(['/api', '/auth', '/raw', '/branding', '/health', '/mcp'].map((p) => [p, { target: api, changeOrigin: false }])),
+    proxy: Object.fromEntries(['/api', '/auth', '/raw', '/branding', '/health', '/mcp', '/oauth/token', '/.well-known'].map((p) => [p, { target: api, changeOrigin: false }])),
   },
 });

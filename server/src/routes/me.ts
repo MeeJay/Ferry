@@ -9,6 +9,7 @@ import { HttpError } from '../services/shares.js';
 import { audit } from '../services/audit.js';
 import { aiKeyDTO, MAX_KEYS_PER_USER, newKey, type AiKeyRow } from '../services/aiKeys.js';
 import { getSetting } from '../services/settings.js';
+import { newConnectorClient } from '../services/oauth.js';
 import { ah } from '../utils/http.js';
 import { userLinkOptions, uuid } from '../utils/schemas.js';
 
@@ -102,6 +103,8 @@ meRouter.post('/ai-keys', ah(async (req, res) => {
   if (!(await getSetting('limits')).aiKeysEnabled) throw new HttpError(403, 'Les clÃ©s dâ€™accÃ¨s IA sont dÃ©sactivÃ©es par lâ€™administrateur');
   const b = z.object({
     name: z.string().trim().min(1).max(80),
+    /** key = bearer secret (Claude Code); connector = OAuth client (claude.ai, Claude Desktop). */
+    kind: z.enum(['key', 'connector']).default('key'),
     scopes: z.array(z.enum(AI_KEY_SCOPES as [string, ...string[]])).min(1).max(AI_KEY_SCOPES.length),
     /** 0 = never. */
     expiresDays: z.number().int().min(0).max(3650).default(90),
@@ -110,13 +113,17 @@ meRouter.post('/ai-keys', ah(async (req, res) => {
   const count = await db('ai_keys').where({ user_id: user.id })
     .where((w) => w.whereNull('expires_at').orWhere('expires_at', '>', db.fn.now())).count<{ n: string }[]>({ n: '*' });
   if (Number(count[0].n) >= MAX_KEYS_PER_USER) throw new HttpError(400, `Maximum ${MAX_KEYS_PER_USER} clÃ©s actives par compte`);
+  // A connector has no bearer secret: its key_hash is a random placeholder never shown.
   const { key, hash, hint } = newKey();
+  const client = b.kind === 'connector' ? newConnectorClient() : null;
   const [row] = await db<AiKeyRow>('ai_keys').insert({
-    user_id: user.id, name: b.name, key_hash: hash, key_hint: hint, scopes: [...new Set(b.scopes)] as any,
+    user_id: user.id, name: b.name, kind: b.kind, key_hash: hash, scopes: [...new Set(b.scopes)] as any,
+    key_hint: client ? client.clientId : hint,
+    oauth_client_id: client?.clientId ?? null, oauth_secret_hash: client?.secretHash ?? null,
     expires_at: b.expiresDays ? new Date(Date.now() + b.expiresDays * 86_400_000) : null,
   }).returning('*');
-  audit(req, 'ai_key.created', row.id, { name: row.name, scopes: row.scopes, expiresAt: row.expires_at });
-  res.status(201).json({ ...aiKeyDTO(row), key });
+  audit(req, 'ai_key.created', row.id, { name: row.name, kind: row.kind, scopes: row.scopes, expiresAt: row.expires_at });
+  res.status(201).json({ ...aiKeyDTO(row), key: client ? client.clientSecret : key });
 }));
 
 meRouter.delete('/ai-keys/:id', ah(async (req, res) => {

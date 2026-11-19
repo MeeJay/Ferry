@@ -250,6 +250,43 @@ const migrations: Migration[] = [
       await knex.schema.dropTableIfExists('ai_keys');
     },
   },
+  {
+    name: '007_ai_connectors',
+    async up(knex) {
+      // Agent uploads close at this date (the agent picks the window), even if unfinished.
+      await knex.schema.alterTable('shares', (t) => { t.timestamp('upload_expires_at', { useTz: true }); });
+      // Claude connectors: an AI key of kind 'connector' is an OAuth 2.1 client
+      // (claude.ai custom connector) instead of a bearer secret (services/oauth.ts).
+      await knex.schema.alterTable('ai_keys', (t) => {
+        t.text('kind').notNullable().defaultTo('key');
+        t.text('oauth_client_id').unique();
+        t.text('oauth_secret_hash');
+      });
+      await knex.raw("ALTER TABLE ai_keys ADD CONSTRAINT ai_keys_kind CHECK (kind IN ('key', 'connector'))");
+      // Authorization codes (5 min, single use, PKCE), access tokens (1 h) and
+      // rotating refresh tokens (60 days); sha256 only. `family` = one authorization.
+      await knex.schema.createTable('ai_oauth_tokens', (t) => {
+        t.increments('id').primary();
+        t.uuid('key_id').notNullable().references('ai_keys.id').onDelete('CASCADE');
+        t.text('kind').notNullable();
+        t.text('token_hash').notNullable().unique();
+        t.uuid('family').notNullable();
+        t.text('code_challenge');
+        t.text('redirect_uri');
+        t.timestamp('expires_at', { useTz: true }).notNullable();
+        t.timestamp('used_at', { useTz: true });
+        t.timestamp('created_at', { useTz: true }).notNullable().defaultTo(knex.fn.now());
+        t.index(['family']);
+        t.index(['expires_at']);
+      });
+    },
+    async down(knex) {
+      await knex.schema.dropTableIfExists('ai_oauth_tokens');
+      await knex.raw('ALTER TABLE ai_keys DROP CONSTRAINT IF EXISTS ai_keys_kind');
+      await knex.schema.alterTable('ai_keys', (t) => { t.dropColumn('kind'); t.dropColumn('oauth_client_id'); t.dropColumn('oauth_secret_hash'); });
+      await knex.schema.alterTable('shares', (t) => { t.dropColumn('upload_expires_at'); });
+    },
+  },
 ];
 
 export const migrationSource: Knex.MigrationSource<Migration> = {

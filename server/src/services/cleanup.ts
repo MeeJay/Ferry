@@ -22,7 +22,10 @@ export async function runCleanup() {
       .orWhere((x) => x.whereNotNull('max_downloads').whereRaw('download_count >= max_downloads')));
   for (const s of expired) await purgeShare(s, 'expired');
 
-  const abandoned = await db<ShareRow>('shares').where({ status: 'pending' }).where('created_at', '<', db.raw("now() - interval '24 hours'"));
+  // Agent uploads have their own window (+1 h to finish_upload what arrived).
+  const abandoned = await db<ShareRow>('shares').where({ status: 'pending' }).where((w) => w
+    .where((x) => x.whereNull('upload_expires_at').where('created_at', '<', db.raw("now() - interval '24 hours'")))
+    .orWhere('upload_expires_at', '<', db.raw("now() - interval '1 hour'")));
   for (const s of abandoned) {
     await purgeShare(s, 'deleted');
     await db('shares').where({ id: s.id }).delete();

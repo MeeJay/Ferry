@@ -11,6 +11,7 @@ import { recordDownload, type FileRow, type ShareRow } from '../services/shares.
 import { driverFor, type ByteRange } from '../services/storage.js';
 import { thumbPath } from '../services/thumbs.js';
 import { getSetting } from '../services/settings.js';
+import { verifyPassword } from '../services/users.js';
 import { absoluteUrl, ah } from '../utils/http.js';
 import { pathSegments } from './public.js';
 
@@ -20,6 +21,21 @@ import { pathSegments } from './public.js';
 //  - /... (other Accept) → the bytes, so `curl` and chat unfurlers get the file
 
 export const serveRouter = Router();
+
+// X-Share-Password: at most 20 wrong passwords per address per 15 minutes.
+const pwFailures = new Map<string, { n: number; until: number }>();
+async function headerPasswordOk(req: Request, share: ShareRow): Promise<boolean> {
+  const ip = req.ip ?? '';
+  const now = Date.now();
+  const f = pwFailures.get(ip);
+  if (f && f.until > now && f.n >= 20) return false;
+  if (await verifyPassword(String(req.get('x-share-password')), share.password_hash)) return true;
+  const cur = f && f.until > now ? f : { n: 0, until: now + 15 * 60_000 };
+  cur.n++;
+  pwFailures.set(ip, cur);
+  if (pwFailures.size > 10_000) for (const [k, v] of pwFailures) if (v.until <= now) pwFailures.delete(k);
+  return false;
+}
 
 /** Types the browser may render inline. Anything else (HTML, SVG, JS…) is forced to download. */
 const INLINE_SAFE = /^(image\/(png|jpe?g|gif|webp|avif|bmp)|video\/(mp4|webm|ogg|quicktime)|audio\/[a-z0-9.+-]+|application\/pdf|text\/plain)$/;
@@ -101,7 +117,12 @@ async function serveRaw(req: Request, res: Response, segs: string[]) {
   if (!hit || hit.link.kind !== 'share') return res.status(404).type('text').send('Not found');
   const share = await loadShare(hit.link.target_id);
   if (!share) return res.status(404).type('text').send('Not found');
-  const access = checkShareAccess(req, share);
+  let access = checkShareAccess(req, share);
+  // Scripts and machines (curl) unlock a password share with a header instead of a session.
+  if (!access.ok && access.reason === 'locked' && req.get('x-share-password') !== undefined) {
+    if (!(await headerPasswordOk(req, share))) return res.status(401).type('text').send('Wrong password');
+    access = { ok: true };
+  }
   const page = linkPath(hit.link.prefix, hit.link.slug, hit.fileSlug ?? undefined);
   // Browsers get redirected to a page; curl, ShareX and unfurlers get a plain status.
   const browser = (req.get('accept') || '').includes('text/html');

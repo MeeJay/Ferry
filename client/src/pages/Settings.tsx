@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import clsx from 'clsx';
 import { Bot, Check, Copy, Download, KeyRound, Link2, Plus, Terminal, Trash2, User } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { AI_KEY_SCOPES, LINK_SOURCES, type AiKeyDTO, type AiKeyScope, type LinkSource, type Me, type UserLinkPrefs } from '@ferry/shared';
+import { AI_KEY_SCOPES, LINK_SOURCES, type AiKeyDTO, type AiKeyKind, type AiKeyScope, type LinkSource, type Me, type UserLinkPrefs } from '@ferry/shared';
 import { api, errorMessage } from '@/api/client';
 import { displayHandle } from '@/lib/handle';
 import { useApp } from '@/store/app';
@@ -378,7 +378,7 @@ function ShareXTab({ me }: { me: Me }) {
 // ── AI agents (MCP) ────────────────────────────────────────────────────────
 
 const SCOPE_INFO: Record<AiKeyScope, { label: string; hint: string }> = {
-  upload: { label: 'Envoyer des fichiers', hint: 'Crée des partages et renvoie leurs liens (page + téléchargement direct).' },
+  upload: { label: 'Envoyer des fichiers', hint: 'Crée des partages (public / privé, mot de passe, expiration, limite de téléchargements), les modifie et les envoie par e-mail. Uniquement ses propres envois.' },
   read: { label: 'Lire mes partages', hint: 'Liste vos partages et leurs liens, quelle que soit leur origine.' },
   delete: { label: 'Supprimer ses envois', hint: 'Supprime uniquement les partages envoyés par un agent, jamais les vôtres.' },
 };
@@ -404,6 +404,11 @@ function CodeBlock({ code, label }: { code: string; label: string }) {
     </div>
   );
 }
+
+const KIND_INFO: Record<AiKeyKind, { label: string; hint: string }> = {
+  key: { label: 'Clé (Claude Code)', hint: 'Une clé secrète frk_… à passer dans l’en-tête : Claude Code, scripts, autres clients MCP.' },
+  connector: { label: 'Connecteur (Claude Chat)', hint: 'Un client OAuth pour claude.ai et Claude Desktop : vous l’autorisez une fois dans Ferry, sans clé à recopier.' },
+};
 
 function mcpSnippets(key: string) {
   const url = `${window.location.origin}/mcp`;
@@ -436,15 +441,16 @@ function AiKeysTab({ me }: { me: Me }) {
       <Panel title="Agents IA (MCP)">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <p className="max-w-xl text-sm text-ink-2">
-            Donnez une clé à un agent IA (Claude Code, Claude Desktop…) : il pourra envoyer des fichiers, même très lourds, et récupérer leurs liens,
-            par exemple pour les télécharger ensuite avec <span className="kbd">curl</span> sur d’autres machines. Les fichiers ne transitent pas par l’IA :
-            l’agent les envoie lui-même. La clé agit en votre nom, dans vos limites, et n’ouvre rien d’autre.
+            Donnez un accès à un agent IA (Claude Chat, Claude Desktop, Claude Code…) : il pourra envoyer des fichiers, même très lourds et même depuis
+            une autre machine (poste Obliance, serveur SSH), choisir les options du partage (mot de passe, expiration, limite de téléchargements, envoi par e-mail)
+            et vous donner les liens. Les fichiers ne transitent pas par l’IA : chaque envoi reçoit une URL à usage unique, valable pour un seul fichier et une durée limitée.
+            L’accès agit en votre nom, dans vos limites, et n’ouvre rien d’autre.
           </p>
-          <Button variant="accent" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>Nouvelle clé</Button>
+          <Button variant="accent" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>Nouvel accès</Button>
         </div>
       </Panel>
-      <Panel title="Clés d’accès">
-        {keys && keys.length === 0 ? <Empty icon={<KeyRound className="size-6" />} title="Aucune clé">Créez une clé par agent ou par poste : chacune est révocable à tout moment.</Empty> : (
+      <Panel title="Accès">
+        {keys && keys.length === 0 ? <Empty icon={<KeyRound className="size-6" />} title="Aucun accès">Créez un connecteur pour Claude Chat ou une clé pour Claude Code : chacun est révocable à tout moment.</Empty> : (
           <ul className="divide-y divide-line-soft">
             {(keys ?? []).map((k) => (
               <li key={k.id} className="flex items-center gap-4 py-3">
@@ -452,6 +458,7 @@ function AiKeysTab({ me }: { me: Me }) {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5 text-sm font-semibold">
                     {k.name}
+                    <Badge tone={k.kind === 'connector' ? 'accent' : undefined} className="!h-5">{k.kind === 'connector' ? 'Connecteur' : 'Clé'}</Badge>
                     {k.scopes.map((s) => <Badge key={s} className="!h-5">{SCOPE_INFO[s].label}</Badge>)}
                     {expired(k) && <Badge tone="warn" className="!h-5">Expirée</Badge>}
                   </div>
@@ -468,25 +475,36 @@ function AiKeysTab({ me }: { me: Me }) {
       </Panel>
       <Panel title="Connexion">
         <div className="space-y-4 text-sm text-ink-2">
-          <p>Serveur MCP (HTTP) de cette instance, authentifié par la clé dans l’en-tête <span className="kbd">Authorization: Bearer</span> :</p>
+          <p>Serveur MCP (HTTP) de cette instance : clé dans l’en-tête <span className="kbd">Authorization: Bearer</span>, ou connecteur OAuth.</p>
           <CopyLink url={endpoint} />
-          <p>La commande complète, clé incluse, est affichée à la création. Ensuite, demandez simplement à l’agent : « envoie ce fichier sur Ferry et donne-moi le lien direct ».</p>
+          <p>Les instructions complètes sont affichées à la création. Ensuite, demandez simplement : « récupère le fichier X sur tel poste et envoie-le sur Ferry, protégé par mot de passe, valable 48 h ».</p>
         </div>
       </Panel>
 
       {creating && <NewAiKeyModal onClose={() => setCreating(false)} onCreated={(k) => { setCreating(false); setFresh(k); load(); }} />}
-      <Modal open={!!fresh} onClose={() => setFresh(null)} title="Clé créée" width="max-w-2xl"
+      <Modal open={!!fresh} onClose={() => setFresh(null)} title={fresh?.kind === 'connector' ? 'Connecteur créé' : 'Clé créée'} width="max-w-2xl"
         footer={<Button variant="accent" onClick={() => setFresh(null)}>Terminé</Button>}>
-        {fresh?.key && (
+        {fresh?.key && (fresh.kind === 'connector' ? (
+          <div className="space-y-5 text-sm text-ink-2">
+            <p>Dans Claude (claude.ai ou Claude Desktop) : <b>Paramètres → Connecteurs → Ajouter un connecteur personnalisé</b>, puis renseignez :</p>
+            <div className="space-y-3">
+              <div><div className="label mb-1.5">Nom</div><CopyLink url="Ferry" /></div>
+              <div><div className="label mb-1.5">URL du serveur MCP distant</div><CopyLink url={endpoint} /></div>
+              <div><div className="label mb-1.5">ID client OAuth (paramètres avancés)</div><CopyLink url={fresh.clientId ?? ''} /></div>
+              <div><div className="label mb-1.5">Secret client OAuth (paramètres avancés)</div><CopyLink url={fresh.key} /></div>
+            </div>
+            <p>Cliquez ensuite sur <b>Connecter</b> : Claude vous renvoie ici pour autoriser l’accès. Le secret ne sera plus affiché.</p>
+          </div>
+        ) : (
           <div className="space-y-5">
             <p className="text-sm text-ink-2">Elle ne sera plus affichée : copiez-la maintenant, ou directement la commande qui la contient.</p>
             <CopyLink url={fresh.key} />
             <CodeBlock label="Claude Code" code={mcpSnippets(fresh.key).claude} />
             <CodeBlock label="Autres clients MCP (JSON)" code={mcpSnippets(fresh.key).json} />
           </div>
-        )}
+        ))}
       </Modal>
-      <Confirm open={!!revoke} onClose={() => setRevoke(null)} title="Révoquer cette clé ?" confirmLabel="Révoquer"
+      <Confirm open={!!revoke} onClose={() => setRevoke(null)} title={revoke?.kind === 'connector' ? 'Révoquer ce connecteur ?' : 'Révoquer cette clé ?'} confirmLabel="Révoquer"
         onConfirm={async () => { await api.del(`/api/me/ai-keys/${revoke!.id}`); setRevoke(null); load(); toast.success('Clé révoquée'); }}>
         L’agent qui l’utilise ne pourra plus rien envoyer. Les partages déjà créés restent en place.
       </Confirm>
@@ -495,6 +513,7 @@ function AiKeysTab({ me }: { me: Me }) {
 }
 
 function NewAiKeyModal({ onClose, onCreated }: { onClose: () => void; onCreated: (k: AiKeyDTO) => void }) {
+  const [kind, setKind] = useState<AiKeyKind>('connector');
   const [name, setName] = useState(`Claude — ${new Date().toLocaleDateString('fr-FR')}`);
   const [scopes, setScopes] = useState<AiKeyScope[]>(['upload', 'read']);
   const [expiresDays, setExpiresDays] = useState(90);
@@ -504,14 +523,17 @@ function NewAiKeyModal({ onClose, onCreated }: { onClose: () => void; onCreated:
   async function create() {
     setBusy(true);
     try {
-      onCreated(await api.post<AiKeyDTO>('/api/me/ai-keys', { name, scopes, expiresDays }));
+      onCreated(await api.post<AiKeyDTO>('/api/me/ai-keys', { kind, name, scopes, expiresDays }));
     } catch (err) { toast.error(errorMessage(err)); } finally { setBusy(false); }
   }
 
   return (
-    <Modal open onClose={onClose} title="Nouvelle clé d’accès IA"
-      footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button variant="accent" loading={busy} disabled={!name.trim() || !scopes.length} onClick={create}>Créer la clé</Button></>}>
+    <Modal open onClose={onClose} title="Nouvel accès IA"
+      footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button variant="accent" loading={busy} disabled={!name.trim() || !scopes.length} onClick={create}>{kind === 'connector' ? 'Créer le connecteur' : 'Créer la clé'}</Button></>}>
       <div className="space-y-5">
+        <Field label="Type" hint={KIND_INFO[kind].hint}>
+          <Segmented value={kind} onChange={setKind} options={(['connector', 'key'] as AiKeyKind[]).map((k) => ({ value: k, label: KIND_INFO[k].label }))} />
+        </Field>
         <Field label="Nom" hint="Ex. l’agent ou le poste qui l’utilise."><Input autoFocus value={name} onChange={(e) => setName(e.target.value)} maxLength={80} /></Field>
         <div>
           <div className="label mb-3">Droits</div>

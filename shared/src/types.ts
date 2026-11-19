@@ -370,8 +370,16 @@ export type RegisterResult = { status: 'active'; me: Me } | { status: 'verify_em
 export type AiKeyScope = 'upload' | 'read' | 'delete';
 export const AI_KEY_SCOPES: AiKeyScope[] = ['upload', 'read', 'delete'];
 
+/**
+ * 'key': a bearer secret frk_… (Claude Code, scripts).
+ * 'connector': an OAuth 2.1 client (claude.ai custom connector, Claude Desktop):
+ * client id + secret, its owner approves it in Ferry; tokens only open /mcp.
+ */
+export type AiKeyKind = 'key' | 'connector';
+
 export interface AiKeyDTO {
   id: string;
+  kind: AiKeyKind;
   name: string;
   hint: string;
   scopes: AiKeyScope[];
@@ -379,6 +387,32 @@ export interface AiKeyDTO {
   createdAt: string;
   lastUsedAt: string | null;
   lastIp: string | null;
-  /** Only in the answer of the creation, never again. */
+  /** Connector: its public OAuth client id. */
+  clientId: string | null;
+  /** Only in the answer of the creation, never again: the key, or the connector's client secret. */
   key?: string;
+}
+
+/** Redirect URIs a connector may send its authorization to: Claude's callbacks, and loopback. */
+export const AI_CONNECTOR_REDIRECT_URIS: readonly string[] = [
+  'https://claude.ai/api/mcp/auth_callback',
+  'https://claude.com/api/mcp/auth_callback',
+  'https://claude.ai/api/organizations/custom-connectors/oauth/callback',
+  'https://claude.com/api/organizations/custom-connectors/oauth/callback',
+];
+
+interface ParsedUrl { protocol: string; hostname: string; username: string; password: string; hash: string }
+const WhatwgUrl = (globalThis as unknown as { URL: new (input: string) => ParsedUrl }).URL;
+
+export function aiConnectorRedirectAllowed(uri: string): boolean {
+  if (AI_CONNECTOR_REDIRECT_URIS.includes(uri)) return true;
+  let u: ParsedUrl;
+  try { u = new WhatwgUrl(uri); } catch { return false; }
+  return u.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname) && !u.username && !u.password && !u.hash;
+}
+
+/** What the consent page of a connector shows (GET /api/oauth/authorize). */
+export interface AiOAuthAuthorizeInfo {
+  connector: { id: string; name: string; scopes: AiKeyScope[]; expiresAt: string | null };
+  redirectHost: string;
 }

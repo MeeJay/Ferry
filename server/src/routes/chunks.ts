@@ -66,7 +66,7 @@ async function authorize(req: Request, id: string): Promise<{ session: Session; 
   const session = await getSession(id);
   const token = req.get('x-upload-token');
   if (!session || !token || token !== session.token) throw new HttpError(404, 'Session d’envoi introuvable');
-  const share = await db<ShareRow>('shares').where({ id: session.shareId, upload_token: token, status: 'pending' }).first();
+  const share = await db<ShareRow>('shares').where({ id: session.shareId, upload_token: token, status: 'pending' }).whereNot({ source: 'mcp' }).first();
   if (!share) throw new HttpError(410, 'Le partage n’accepte plus d’envois');
   return { session, share };
 }
@@ -88,7 +88,7 @@ chunksRouter.post('/', express.json({ limit: '16kb' }), ah(async (req, res) => {
     size: z.number().int().min(0),
   }).parse(req.body);
   const token = req.get('x-upload-token');
-  const share = token ? await db<ShareRow>('shares').where({ upload_token: token, status: 'pending' }).first() : null;
+  const share = token ? await db<ShareRow>('shares').where({ upload_token: token, status: 'pending' }).whereNot({ source: 'mcp' }).first() : null;
   if (!share) throw new HttpError(403, 'Jeton d’envoi invalide ou expiré');
   const owner = await getUser(share.owner_id);
   if (!owner || owner.disabled) throw new HttpError(403, 'Compte indisponible');

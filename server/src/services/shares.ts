@@ -47,9 +47,11 @@ export interface ShareRow {
   /** Agent uploads: the announced files, one upload URL each (routes/agentUpload.ts). */
   upload_plan: PlannedFile[] | null;
   ai_key_id: string | null;
+  upload_expires_at: Date | null;
 }
 
-export interface PlannedFile { name: string; size: number | null; done: boolean }
+/** A file an AI agent announced; `key` = sha256 of its own upload token (one URL per file). */
+export interface PlannedFile { name: string; size: number | null; done: boolean; key: string }
 
 export interface FileRow {
   id: string;
