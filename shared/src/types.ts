@@ -389,9 +389,22 @@ export interface AiKeyDTO {
   lastIp: string | null;
   /** Connector: its public OAuth client id. */
   clientId: string | null;
+  /** Addresses (IP or CIDR) it may be used from; empty = anywhere. */
+  allowedIps: string[];
   /** Only in the answer of the creation, never again: the key, or the connector's client secret. */
   key?: string;
 }
+
+/** Most addresses (IP or CIDR) per key / connector. */
+export const AI_KEY_MAX_IPS = 32;
+
+/**
+ * Where claude.ai / Claude Desktop connectors call from: Anthropic's outbound
+ * ranges (https://platform.claude.com/docs/en/api/ip-addresses, checked 2026-11-19;
+ * "stable, will not change without notice"). The remote MCP server is contacted
+ * from Anthropic's cloud, never from the user's device.
+ */
+export const ANTHROPIC_OUTBOUND_RANGES: readonly string[] = ['160.79.104.0/21', '153.61.208.0/20'];
 
 /** Redirect URIs a connector may send its authorization to: Claude's callbacks, and loopback. */
 export const AI_CONNECTOR_REDIRECT_URIS: readonly string[] = [

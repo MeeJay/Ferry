@@ -287,6 +287,16 @@ const migrations: Migration[] = [
       await knex.schema.alterTable('shares', (t) => { t.dropColumn('upload_expires_at'); });
     },
   },
+  {
+    name: '008_ai_key_allowed_ips',
+    async up(knex) {
+      // Addresses (IP or CIDR) a key / connector may be used from; empty = anywhere.
+      await knex.schema.alterTable('ai_keys', (t) => { t.specificType('allowed_ips', 'text[]').notNullable().defaultTo('{}'); });
+    },
+    async down(knex) {
+      await knex.schema.alterTable('ai_keys', (t) => { t.dropColumn('allowed_ips'); });
+    },
+  },
 ];
 
 export const migrationSource: Knex.MigrationSource<Migration> = {

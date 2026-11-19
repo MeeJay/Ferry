@@ -11,6 +11,7 @@ import { audit } from './audit.js';
 import { getSetting } from './settings.js';
 import { getUser } from './users.js';
 import { sha256, type AiKeyRow } from './aiKeys.js';
+import { ipAllowed } from '../utils/ip.js';
 
 // ─── OAuth 2.1 authorization server of the Claude connectors ────────────────
 //
@@ -106,7 +107,7 @@ interface TokenRow {
 type TokenResponse = { status: number; body: Record<string, unknown> };
 const fail = (status: number, error: string, description: string): TokenResponse => ({ status, body: { error, error_description: description } });
 
-async function token(body: Record<string, unknown>, authorization: string | undefined): Promise<TokenResponse> {
+async function token(body: Record<string, unknown>, authorization: string | undefined, ip: string | undefined): Promise<TokenResponse> {
   // Client authentication: client_secret_basic or client_secret_post.
   let clientId = str(body.client_id, 128);
   let secret = str(body.client_secret, 256);
@@ -121,6 +122,10 @@ async function token(body: Record<string, unknown>, authorization: string | unde
   const connector = await loadConnector(clientId);
   const secretOk = secretMatches(secret, connector?.oauth_secret_hash ?? null);
   if (!connector || !secretOk) return fail(401, 'invalid_client', 'Unknown client or wrong client secret');
+  if (!ipAllowed(connector.allowed_ips ?? [], ip)) {
+    logger.warn({ key: connector.id, ip }, 'oauth: token request from an address the connector does not allow');
+    return fail(403, 'access_denied', 'This connector is not allowed from this address');
+  }
 
   // Housekeeping: rows of this connector expired for a day.
   db('ai_oauth_tokens').where({ key_id: connector.id }).where('expires_at', '<', new Date(Date.now() - 86_400_000)).delete()
@@ -200,7 +205,7 @@ const tokenLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 30, standardHeade
 oauthPublicRouter.post('/oauth/token', tokenLimiter, express.urlencoded({ extended: false, limit: '16kb' }), express.json({ limit: '16kb' }), ah(async (req, res) => {
   res.set({ 'Cache-Control': 'no-store', Pragma: 'no-cache' });
   const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
-  const out = await token(body, req.get('authorization'));
+  const out = await token(body, req.get('authorization'), req.ip);
   if (out.status === 401) res.set('WWW-Authenticate', 'Basic realm="ferry"');
   res.status(out.status).json(out.body);
 }));

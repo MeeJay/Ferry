@@ -81,7 +81,7 @@ const tools: ToolDef[] = [
       return {
         instance: { name: branding.name, baseUrl: baseUrl(req), version: config.version },
         account: { username: ctx.user.username.replace(/^og_/, ''), displayName: ctx.user.display_name, role: ctx.user.role },
-        key: { name: ctx.key.name, kind: ctx.key.kind, rights: ctx.key.scopes, expiresAt: ctx.key.expires_at },
+        key: { name: ctx.key.name, kind: ctx.key.kind, rights: ctx.key.scopes, expiresAt: ctx.key.expires_at, allowedIps: ctx.key.allowed_ips?.length ? ctx.key.allowed_ips : 'anywhere' },
         limits: {
           maxFileSize: l.maxFileSize || null, maxShareSize: l.maxShareSize || null,
           storageQuota: l.storageQuota || null, storageUsed: l.storageUsed,
@@ -434,7 +434,7 @@ export async function mcpHandler(req: Request, res: Response) {
   const ctx = await authenticateKey(req);
   if (typeof ctx === 'string') {
     res.set('WWW-Authenticate', mcpChallenge(req, REFUSALS[ctx]));
-    return res.status(ctx === 'disabled' ? 403 : 401).json({ jsonrpc: '2.0', id: null, error: { code: -32001, message: REFUSALS[ctx] } });
+    return res.status(ctx === 'disabled' || ctx === 'ip' ? 403 : 401).json({ jsonrpc: '2.0', id: null, error: { code: -32001, message: REFUSALS[ctx] } });
   }
   req.user = ctx.user;
   const env: Env = { req, ctx };

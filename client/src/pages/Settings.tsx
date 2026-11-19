@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import clsx from 'clsx';
-import { Bot, Check, Copy, Download, KeyRound, Link2, Plus, Terminal, Trash2, User } from 'lucide-react';
+import { Bot, Check, Copy, Download, Globe, KeyRound, Link2, Plus, Terminal, Trash2, User } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { AI_KEY_SCOPES, LINK_SOURCES, type AiKeyDTO, type AiKeyKind, type AiKeyScope, type LinkSource, type Me, type UserLinkPrefs } from '@ferry/shared';
+import { AI_KEY_SCOPES, ANTHROPIC_OUTBOUND_RANGES, LINK_SOURCES, type AiKeyDTO, type AiKeyKind, type AiKeyScope, type LinkSource, type Me, type UserLinkPrefs } from '@ferry/shared';
 import { api, errorMessage } from '@/api/client';
 import { displayHandle } from '@/lib/handle';
 import { useApp } from '@/store/app';
 import { dateTime, formatBytes, relative } from '@/lib/format';
-import { Badge, Button, Confirm, CopyLink, copyText, Empty, Field, IconButton, Input, Modal, SectionTitle, Segmented, Select, Toggle } from '@/components/ui';
+import { Badge, Button, Confirm, CopyLink, copyText, Empty, Field, IconButton, Input, Modal, SectionTitle, Segmented, Select, Textarea, Toggle } from '@/components/ui';
 import { SOURCE_LABELS, UserLinkEditor } from '@/components/LinkPolicy';
 import { ParallelPicker } from '@/components/ParallelPicker';
 
@@ -410,6 +410,42 @@ const KIND_INFO: Record<AiKeyKind, { label: string; hint: string }> = {
   connector: { label: 'Connecteur (Claude Chat)', hint: 'Un client OAuth pour claude.ai et Claude Desktop : vous l’autorisez une fois dans Ferry, sans clé à recopier.' },
 };
 
+const ANTHROPIC_IPS = ANTHROPIC_OUTBOUND_RANGES.join('\n');
+const parseIps = (text: string) => text.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);
+
+/** Allowed addresses of a key / connector: one IP or CIDR per line, empty = anywhere. */
+function IpField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <Field label="Adresses autorisées"
+      hint="Une adresse IP ou plage CIDR par ligne (IPv4 ou IPv6). Vide = depuis partout. Un connecteur Claude Chat appelle Ferry depuis les serveurs d’Anthropic, jamais depuis votre poste. Les URL d’envoi données à l’agent ne sont pas filtrées : elles servent sur les machines qui envoient les fichiers.">
+      <Textarea rows={3} value={value} onChange={(e) => onChange(e.target.value)} placeholder="203.0.113.7&#10;10.0.0.0/8" className="font-mono text-[13px]" />
+      <div className="mt-2 flex flex-wrap gap-2">
+        <Button size="sm" variant="ghost" onClick={() => onChange(ANTHROPIC_IPS)}>Plages d’Anthropic (Claude Chat)</Button>
+        <Button size="sm" variant="ghost" onClick={() => onChange('')}>Depuis partout</Button>
+      </div>
+    </Field>
+  );
+}
+
+function EditIpsModal({ k, onClose, onSaved }: { k: AiKeyDTO; onClose: () => void; onSaved: () => void }) {
+  const [ips, setIps] = useState(k.allowedIps.join('\n'));
+  const [busy, setBusy] = useState(false);
+  async function save() {
+    setBusy(true);
+    try {
+      await api.patch(`/api/me/ai-keys/${k.id}`, { allowedIps: parseIps(ips) });
+      toast.success('Adresses enregistrées');
+      onSaved();
+    } catch (err) { toast.error(errorMessage(err)); } finally { setBusy(false); }
+  }
+  return (
+    <Modal open onClose={onClose} title={`Adresses autorisées — ${k.name}`}
+      footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button variant="accent" loading={busy} onClick={save}>Enregistrer</Button></>}>
+      <IpField value={ips} onChange={setIps} />
+    </Modal>
+  );
+}
+
 function mcpSnippets(key: string) {
   const url = `${window.location.origin}/mcp`;
   return {
@@ -423,6 +459,7 @@ function AiKeysTab({ me }: { me: Me }) {
   const [creating, setCreating] = useState(false);
   const [fresh, setFresh] = useState<AiKeyDTO | null>(null);
   const [revoke, setRevoke] = useState<AiKeyDTO | null>(null);
+  const [editIps, setEditIps] = useState<AiKeyDTO | null>(null);
   const load = () => { api.get<AiKeyDTO[]>('/api/me/ai-keys').then(setKeys).catch(() => setKeys([])); };
   useEffect(load, []);
 
@@ -466,7 +503,13 @@ function AiKeysTab({ me }: { me: Me }) {
                     <span className="font-mono">{k.hint}</span> · créée le {dateTime(k.createdAt)} · {k.expiresAt ? `${expired(k) ? 'expirée' : 'expire'} ${relative(k.expiresAt)}` : 'sans expiration'}
                     {' · '}{k.lastUsedAt ? `utilisée ${relative(k.lastUsedAt)}${k.lastIp ? ` depuis ${k.lastIp}` : ''}` : 'jamais utilisée'}
                   </div>
+                  <div className="text-xs text-ink-3">
+                    {k.allowedIps.length
+                      ? <>Autorisée depuis <span className="font-mono">{k.allowedIps.join(', ')}</span></>
+                      : 'Autorisée depuis partout'}
+                  </div>
                 </div>
+                <IconButton label="Adresses autorisées" onClick={() => setEditIps(k)}><Globe className="size-4" /></IconButton>
                 <IconButton label="Révoquer" className="hover:!text-danger" onClick={() => setRevoke(k)}><Trash2 className="size-4" /></IconButton>
               </li>
             ))}
@@ -481,6 +524,7 @@ function AiKeysTab({ me }: { me: Me }) {
         </div>
       </Panel>
 
+      {editIps && <EditIpsModal k={editIps} onClose={() => setEditIps(null)} onSaved={() => { setEditIps(null); load(); }} />}
       {creating && <NewAiKeyModal onClose={() => setCreating(false)} onCreated={(k) => { setCreating(false); setFresh(k); load(); }} />}
       <Modal open={!!fresh} onClose={() => setFresh(null)} title={fresh?.kind === 'connector' ? 'Connecteur créé' : 'Clé créée'} width="max-w-2xl"
         footer={<Button variant="accent" onClick={() => setFresh(null)}>Terminé</Button>}>
@@ -517,13 +561,20 @@ function NewAiKeyModal({ onClose, onCreated }: { onClose: () => void; onCreated:
   const [name, setName] = useState(`Claude — ${new Date().toLocaleDateString('fr-FR')}`);
   const [scopes, setScopes] = useState<AiKeyScope[]>(['upload', 'read']);
   const [expiresDays, setExpiresDays] = useState(90);
+  const [ips, setIps] = useState(ANTHROPIC_IPS);
   const [busy, setBusy] = useState(false);
+  // Connectors are called from Anthropic: its ranges by default. Keys: anywhere by default.
+  const changeKind = (k: AiKeyKind) => {
+    setKind(k);
+    if (k === 'key' && ips === ANTHROPIC_IPS) setIps('');
+    if (k === 'connector' && !ips.trim()) setIps(ANTHROPIC_IPS);
+  };
   const toggle = (s: AiKeyScope, on: boolean) => setScopes(on ? [...scopes, s] : scopes.filter((x) => x !== s));
 
   async function create() {
     setBusy(true);
     try {
-      onCreated(await api.post<AiKeyDTO>('/api/me/ai-keys', { kind, name, scopes, expiresDays }));
+      onCreated(await api.post<AiKeyDTO>('/api/me/ai-keys', { kind, name, scopes, expiresDays, allowedIps: parseIps(ips) }));
     } catch (err) { toast.error(errorMessage(err)); } finally { setBusy(false); }
   }
 
@@ -532,7 +583,7 @@ function NewAiKeyModal({ onClose, onCreated }: { onClose: () => void; onCreated:
       footer={<><Button variant="ghost" onClick={onClose}>Annuler</Button><Button variant="accent" loading={busy} disabled={!name.trim() || !scopes.length} onClick={create}>{kind === 'connector' ? 'Créer le connecteur' : 'Créer la clé'}</Button></>}>
       <div className="space-y-5">
         <Field label="Type" hint={KIND_INFO[kind].hint}>
-          <Segmented value={kind} onChange={setKind} options={(['connector', 'key'] as AiKeyKind[]).map((k) => ({ value: k, label: KIND_INFO[k].label }))} />
+          <Segmented value={kind} onChange={changeKind} options={(['connector', 'key'] as AiKeyKind[]).map((k) => ({ value: k, label: KIND_INFO[k].label }))} />
         </Field>
         <Field label="Nom" hint="Ex. l’agent ou le poste qui l’utilise."><Input autoFocus value={name} onChange={(e) => setName(e.target.value)} maxLength={80} /></Field>
         <div>
@@ -546,6 +597,7 @@ function NewAiKeyModal({ onClose, onCreated }: { onClose: () => void; onCreated:
             {KEY_EXPIRY.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </Select>
         </Field>
+        <IpField value={ips} onChange={setIps} />
       </div>
     </Modal>
   );

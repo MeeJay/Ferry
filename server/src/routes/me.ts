@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { Router, type Request } from 'express';
 import { z } from 'zod';
-import { AI_KEY_SCOPES, LINK_SOURCES, type UserLinkPrefs } from '@ferry/shared';
+import { AI_KEY_MAX_IPS, AI_KEY_SCOPES, LINK_SOURCES, type UserLinkPrefs } from '@ferry/shared';
 import { db } from '../db/knex.js';
 import { hashToken, requireAuth } from '../middleware/auth.js';
 import { checkHandle, hashPassword, linkPolicies, toMe, verifyPassword, type UserRow } from '../services/users.js';
@@ -10,6 +10,7 @@ import { audit } from '../services/audit.js';
 import { aiKeyDTO, MAX_KEYS_PER_USER, newKey, type AiKeyRow } from '../services/aiKeys.js';
 import { getSetting } from '../services/settings.js';
 import { newConnectorClient } from '../services/oauth.js';
+import { normalizeIpList } from '../utils/ip.js';
 import { ah } from '../utils/http.js';
 import { userLinkOptions, uuid } from '../utils/schemas.js';
 
@@ -108,7 +109,10 @@ meRouter.post('/ai-keys', ah(async (req, res) => {
     scopes: z.array(z.enum(AI_KEY_SCOPES as [string, ...string[]])).min(1).max(AI_KEY_SCOPES.length),
     /** 0 = never. */
     expiresDays: z.number().int().min(0).max(3650).default(90),
+    /** IP / CIDR it may be used from; empty = anywhere. */
+    allowedIps: z.array(z.string().max(64)).max(AI_KEY_MAX_IPS).default([]),
   }).parse(req.body);
+  const allowedIps = checkIps(b.allowedIps);
   const user = req.user!;
   const count = await db('ai_keys').where({ user_id: user.id })
     .where((w) => w.whereNull('expires_at').orWhere('expires_at', '>', db.fn.now())).count<{ n: string }[]>({ n: '*' });
@@ -119,12 +123,35 @@ meRouter.post('/ai-keys', ah(async (req, res) => {
   const [row] = await db<AiKeyRow>('ai_keys').insert({
     user_id: user.id, name: b.name, kind: b.kind, key_hash: hash, scopes: [...new Set(b.scopes)] as any,
     key_hint: client ? client.clientId : hint,
-    oauth_client_id: client?.clientId ?? null, oauth_secret_hash: client?.secretHash ?? null,
+    oauth_client_id: client?.clientId ?? null, oauth_secret_hash: client?.secretHash ?? null, allowed_ips: allowedIps as any,
     expires_at: b.expiresDays ? new Date(Date.now() + b.expiresDays * 86_400_000) : null,
   }).returning('*');
-  audit(req, 'ai_key.created', row.id, { name: row.name, kind: row.kind, scopes: row.scopes, expiresAt: row.expires_at });
+  audit(req, 'ai_key.created', row.id, { name: row.name, kind: row.kind, scopes: row.scopes, expiresAt: row.expires_at, allowedIps });
   res.status(201).json({ ...aiKeyDTO(row), key: client ? client.clientSecret : key });
 }));
+
+/** Name and allowed addresses can change; rights and expiry cannot (create a new access). */
+meRouter.patch('/ai-keys/:id', ah(async (req, res) => {
+  browserOnly(req);
+  const b = z.object({
+    name: z.string().trim().min(1).max(80).optional(),
+    allowedIps: z.array(z.string().max(64)).max(AI_KEY_MAX_IPS).optional(),
+  }).parse(req.body);
+  const patch: Partial<AiKeyRow> = {};
+  if (b.name !== undefined) patch.name = b.name;
+  if (b.allowedIps !== undefined) patch.allowed_ips = checkIps(b.allowedIps) as any;
+  if (!Object.keys(patch).length) throw new HttpError(400, 'Rien à modifier');
+  const [row] = await db<AiKeyRow>('ai_keys').where({ id: uuid.parse(req.params.id), user_id: req.user!.id }).update(patch).returning('*');
+  if (!row) throw new HttpError(404, 'Accès introuvable');
+  audit(req, 'ai_key.updated', row.id, { name: row.name, allowedIps: row.allowed_ips });
+  res.json(aiKeyDTO(row));
+}));
+
+function checkIps(list: string[]): string[] {
+  const r = normalizeIpList(list);
+  if (!r.ok) throw new HttpError(400, `Adresse ou plage invalide : ${r.invalid} (ex. 203.0.113.7, 10.0.0.0/8, 2001:db8::/32)`);
+  return r.ips;
+}
 
 meRouter.delete('/ai-keys/:id', ah(async (req, res) => {
   browserOnly(req);

@@ -4,6 +4,8 @@ import type { AiKeyDTO, AiKeyKind, AiKeyScope } from '@ferry/shared';
 import { db } from '../db/knex.js';
 import { getSetting } from './settings.js';
 import { getUser, type UserRow } from './users.js';
+import { logger } from '../logger.js';
+import { ipAllowed } from '../utils/ip.js';
 
 // Access keys of AI agents. A key acts as the account that created it, with that
 // account's CURRENT limits (re-read on every call), restricted to its rights.
@@ -32,6 +34,7 @@ export interface AiKeyRow {
   created_at: Date;
   last_used_at: Date | null;
   last_ip: string | null;
+  allowed_ips: string[];
 }
 
 export interface AiKeyContext { key: AiKeyRow; user: UserRow }
@@ -46,7 +49,7 @@ export function newKey(): { key: string; hash: string; hint: string } {
 
 export function aiKeyDTO(k: AiKeyRow): AiKeyDTO {
   return {
-    id: k.id, kind: k.kind, name: k.name, hint: k.key_hint, scopes: k.scopes, clientId: k.oauth_client_id,
+    id: k.id, kind: k.kind, name: k.name, hint: k.key_hint, scopes: k.scopes, clientId: k.oauth_client_id, allowedIps: k.allowed_ips ?? [],
     expiresAt: k.expires_at ? new Date(k.expires_at).toISOString() : null,
     createdAt: new Date(k.created_at).toISOString(),
     lastUsedAt: k.last_used_at ? new Date(k.last_used_at).toISOString() : null,
@@ -54,7 +57,7 @@ export function aiKeyDTO(k: AiKeyRow): AiKeyDTO {
   };
 }
 
-export type KeyRefusal = 'missing' | 'invalid' | 'expired' | 'disabled' | 'account';
+export type KeyRefusal = 'missing' | 'invalid' | 'expired' | 'disabled' | 'account' | 'ip';
 
 /** Resolves `Authorization: Bearer frk_…` (key) or `fat_…` (connector token); every check is redone on each call. */
 export async function authenticateKey(req: Request): Promise<AiKeyContext | KeyRefusal> {
@@ -82,6 +85,10 @@ export async function keyContext(req: Request, key: AiKeyRow | undefined): Promi
   if (!(await getSetting('limits')).aiKeysEnabled) return 'disabled';
   const user = await getUser(key.user_id);
   if (!user || user.disabled || user.pending_approval) return 'account';
+  if (!ipAllowed(key.allowed_ips ?? [], req.ip)) {
+    logger.warn({ key: key.id, ip: req.ip }, 'ai key used from an address it does not allow');
+    return 'ip';
+  }
   db('ai_keys').where({ id: key.id }).update({ last_used_at: db.fn.now(), last_ip: req.ip ?? null }).catch(() => {});
   return { key, user };
 }
@@ -92,4 +99,5 @@ export const REFUSALS: Record<KeyRefusal, string> = {
   expired: 'This access key has expired',
   disabled: 'AI access keys are disabled on this instance',
   account: 'The account of this key is disabled',
+  ip: 'This access is not allowed from this address',
 };
